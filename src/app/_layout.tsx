@@ -3,6 +3,7 @@ import { StatusBar } from 'expo-status-bar';
 import { View } from 'react-native';
 
 import { DesktopNav, HeaderActions, useIsWide } from '@/components/nav';
+import { AuthProvider } from '@/lib/auth';
 import { colors } from '@/theme';
 
 const headerRight = () => <HeaderActions />;
@@ -11,6 +12,7 @@ export default function RootLayout() {
   const wide = useIsWide();
 
   return (
+    <AuthProvider>
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <StatusBar style={wide ? 'dark' : 'light'} />
       {/* Wide web windows get the website-style navbar above every page instead of native headers. */}
@@ -29,6 +31,8 @@ export default function RootLayout() {
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="menu" options={{ headerShown: false, presentation: 'fullScreenModal', animation: 'slide_from_right' }} />
         <Stack.Screen name="search" options={{ title: 'Search', headerRight: undefined, animation: 'fade' }} />
+        <Stack.Screen name="login" options={{ title: 'Log in', headerRight: undefined, animation: 'slide_from_bottom' }} />
+        <Stack.Screen name="register" options={{ title: 'Create account', headerRight: undefined, animation: 'slide_from_bottom' }} />
         <Stack.Screen name="service/[id]" options={{ title: 'Service' }} />
         <Stack.Screen name="insight/[id]" options={{ title: 'Insight' }} />
         <Stack.Screen name="topic/[id]" options={{ title: '' }} />
@@ -49,5 +53,6 @@ export default function RootLayout() {
         <Stack.Screen name="sitemap" options={{ title: 'Sitemap' }} />
       </Stack>
     </View>
+    </AuthProvider>
   );
 }

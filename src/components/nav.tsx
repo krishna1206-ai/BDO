@@ -10,6 +10,7 @@ import { PressableScale } from '@/components/ui';
 import { insights } from '@/data/content';
 import { insightImage } from '@/data/images';
 import { featuredLinks, mainNav, utilityNav, type NavNode } from '@/data/nav';
+import { useAuth } from '@/lib/auth';
 import { colors, spacing } from '@/theme';
 
 /** Desktop-style navbar is used on web when the window is wide enough to fit it. */
@@ -88,6 +89,7 @@ export function MobileMenu() {
             <Text style={s.utilityText}>{u.title}</Text>
           </Pressable>
         ))}
+        <AccountLink onNavigate={open} />
         <PressableScale style={s.contactBtn} onPress={() => open('/contact')}>
           <Text style={s.contactText}>CONTACT</Text>
         </PressableScale>
@@ -190,6 +192,8 @@ export function DesktopNav() {
         ))}
         {/* Language indicator (English only for now). */}
         <Text style={s.langText}>EN</Text>
+        <AccountLink onNavigate={go} />
+
         <Pressable onPress={() => go('/contact')} style={({ hovered }) => [s.deskContact, hovered && { opacity: 0.9 }]}>
           <Text style={s.contactText}>CONTACT</Text>
         </Pressable>
@@ -334,6 +338,30 @@ export function DesktopNav() {
   );
 }
 
+/** "Log in" when signed out; "Hi, name · Log out" when signed in. */
+function AccountLink({ onNavigate }: { onNavigate: (href: Href) => void }) {
+  const { user, signOut } = useAuth();
+  if (!user) {
+    return (
+      <Pressable onPress={() => onNavigate('/login')} hitSlop={6} style={s.accountLink}>
+        <Ionicons name="person-circle-outline" size={18} color={colors.text} />
+        <Text style={s.accountText}>Log in</Text>
+      </Pressable>
+    );
+  }
+  return (
+    <View style={s.accountLink}>
+      <Ionicons name="person-circle" size={18} color={colors.primary} />
+      <Text style={s.accountText} numberOfLines={1}>
+        Hi, {user.name.split(' ')[0]}
+      </Text>
+      <Pressable onPress={signOut} hitSlop={6}>
+        <Text style={[s.accountText, { color: colors.primaryLink }]}>Log out</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 function HoverLink({ label, onPress, style }: { label: string; onPress: () => void; style?: object }) {
   return (
     <Pressable onPress={onPress} style={style}>
@@ -416,6 +444,8 @@ const s = StyleSheet.create({
   },
   deskUtilityLink: { paddingVertical: 12 },
   langText: { fontSize: 16, color: colors.text },
+  accountLink: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  accountText: { fontSize: 15, color: colors.text, fontWeight: '600' },
   deskContact: { backgroundColor: colors.accent, paddingHorizontal: 28, paddingVertical: 14 },
   deskMain: { flexDirection: 'row', alignItems: 'center', height: 92, paddingLeft: 56 },
   deskLogo: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
