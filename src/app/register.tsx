@@ -113,7 +113,7 @@ export default function RegisterScreen() {
             <Ionicons name={agreed ? 'checkbox' : 'square-outline'} size={22} color={agreed ? colors.accent : colors.textMuted} />
             <Text style={{ flex: 1, fontSize: 14, lineHeight: 20, color: colors.text }}>
               I agree to the{' '}
-              <Link href="/legal" style={s.link}>
+              <Link href="/terms" style={s.link}>
                 terms and privacy notice
               </Link>
               .
