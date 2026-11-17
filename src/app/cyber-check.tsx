@@ -16,6 +16,7 @@ import {
 } from '@/components/ui';
 import { cyberQuestions } from '@/data/content';
 import { cyberImage } from '@/data/images';
+import { saveCyberCheckResult } from '@/lib/db';
 import { colors, radius, spacing } from '@/theme';
 
 type Answer = 0 | 1 | 2;
@@ -35,6 +36,19 @@ function band(score: number) {
 
 export default function CyberCheckScreen() {
   const [answers, setAnswers] = useState<Record<string, Answer>>({});
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+
+  /** Records an answer; when the last question is answered, saves the result to "cyber_check_results". */
+  const answer = (id: string, value: Answer) => {
+    const next = { ...answers, [id]: value };
+    setAnswers(next);
+    if (Object.keys(next).length !== cyberQuestions.length) return;
+    const pct = cyberQuestions.reduce((sum, q) => sum + q.weight * (next[q.id] ?? 0), 0) / maxScore;
+    setSaveState('saving');
+    saveCyberCheckResult({ answers: next, score: Math.round(pct * 100), result: band(pct).label })
+      .then(() => setSaveState('saved'))
+      .catch(() => setSaveState('error'));
+  };
   const { scrollY, onScroll } = useScrollTracker();
 
   const answered = Object.keys(answers).length;
@@ -74,7 +88,7 @@ export default function CyberCheckScreen() {
                 <PressableScale
                   key={o.label}
                   scaleTo={0.94}
-                  onPress={() => setAnswers((prev) => ({ ...prev, [q.id]: o.value }))}
+                  onPress={() => answer(q.id, o.value)}
                   style={[s.option, selected && s.optionSelected]}
                 >
                   <Text style={[s.optionText, selected && { color: colors.onPrimary }]}>{o.label}</Text>
@@ -99,6 +113,15 @@ export default function CyberCheckScreen() {
             <ProgressBar value={score} color={result.color} delay={200} />
           </View>
           <Text style={ui.body}>{result.text}</Text>
+          <Text style={[ui.muted, { marginTop: spacing.sm }]}>
+            {saveState === 'saving'
+              ? 'Saving your result…'
+              : saveState === 'saved'
+                ? '✓ Result saved to your account.'
+                : saveState === 'error'
+                  ? 'Your result could not be saved, but you can still use it below.'
+                  : ''}
+          </Text>
 
           {gaps.length > 0 ? (
             <View style={{ marginTop: spacing.md }}>
@@ -118,7 +141,13 @@ export default function CyberCheckScreen() {
               icon="shield-checkmark-outline"
               onPress={() => router.push({ pathname: '/contact', params: { service: 'Cybersecurity' } })}
             />
-            <PressableScale onPress={() => setAnswers({})} style={s.reset}>
+            <PressableScale
+              onPress={() => {
+                setAnswers({});
+                setSaveState('idle');
+              }}
+              style={s.reset}
+            >
               <Text style={s.resetText}>Start again</Text>
             </PressableScale>
           </View>

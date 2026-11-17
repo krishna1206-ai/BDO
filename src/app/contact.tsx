@@ -3,32 +3,50 @@ import { useState, type ComponentProps } from 'react';
 import { Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput } from 'react-native';
 import Animated, { FadeInDown, FadeOut, LinearTransition, ReduceMotion } from 'react-native-reanimated';
 
+import { FormAlert } from '@/components/form';
 import { PrimaryButton, Reveal, styles as ui } from '@/components/ui';
+import { useAuth } from '@/lib/auth';
+import { submitEnquiry } from '@/lib/db';
 import { colors, radius, spacing } from '@/theme';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function ContactScreen() {
   const params = useLocalSearchParams<{ service?: string }>();
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [company, setCompany] = useState('');
+  const { user } = useAuth();
+  // Pre-fill from the signed-in account.
+  const [name, setName] = useState(user?.name ?? '');
+  const [email, setEmail] = useState(user?.email ?? '');
+  const [company, setCompany] = useState(user?.company ?? '');
   const [topic, setTopic] = useState(params.service ?? '');
   const [message, setMessage] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const [formError, setFormError] = useState('');
 
-  const submit = () => {
+  const submit = async () => {
+    if (busy) return;
     const next: Record<string, string> = {};
     if (!name.trim()) next.name = 'Please enter your name.';
     if (!EMAIL_RE.test(email.trim())) next.email = 'Please enter a valid email address.';
     if (message.trim().length < 10) next.message = 'Please tell us a little more (at least 10 characters).';
     setErrors(next);
+    setFormError('');
     if (Object.keys(next).length > 0) return;
 
-    // Demo only: in a real app, send this to your backend or CRM here.
-    Alert.alert('Thank you', `Thanks ${name.trim()}, an adviser will be in touch within one working day.`, [
-      { text: 'OK', onPress: () => router.back() },
-    ]);
+    setBusy(true);
+    try {
+      // Saved to the "enquiries" table in Supabase.
+      await submitEnquiry({ fullName: name, email, company, topic, message });
+      Alert.alert('Thank you', `Thanks ${name.trim()}, an adviser will be in touch within one working day.`, [
+        { text: 'OK', onPress: () => (router.canGoBack() ? router.back() : router.replace('/')) },
+      ]);
+      setMessage('');
+    } catch (e) {
+      setFormError(e instanceof Error ? e.message : 'Could not send your enquiry. Please try again.');
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -56,8 +74,9 @@ export default function ContactScreen() {
         <Field index={4} label="Topic" value={topic} onChangeText={setTopic} placeholder="e.g. Tax, Audit, Selling my business" />
         <Field index={5} label="Message *" value={message} onChangeText={setMessage} error={errors.message} multiline />
 
+        {formError ? <FormAlert message={formError} /> : null}
         <Reveal index={6} style={{ marginTop: spacing.lg }}>
-          <PrimaryButton label="Send enquiry" icon="send-outline" onPress={submit} />
+          <PrimaryButton label={busy ? 'Sending…' : 'Send enquiry'} icon="send-outline" onPress={submit} />
         </Reveal>
       </ScrollView>
     </KeyboardAvoidingView>

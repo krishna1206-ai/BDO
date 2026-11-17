@@ -1,5 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Alert, StyleSheet, Text, View } from 'react-native';
 import Animated, { ReduceMotion, ZoomIn } from 'react-native-reanimated';
 
@@ -15,22 +15,52 @@ import {
 } from '@/components/ui';
 import { events, formatDate } from '@/data/content';
 import { eventImages } from '@/data/images';
+import { useAuth } from '@/lib/auth';
+import { cancelEventRegistration, myEventRegistrations, registerForEvent } from '@/lib/db';
 import { colors, radius, spacing } from '@/theme';
 
 export default function EventsScreen() {
+  const { user } = useAuth();
   const [registered, setRegistered] = useState<Set<string>>(new Set());
+  const [pending, setPending] = useState<string | null>(null);
   const replayKey = useReplayKey();
   const { scrollY, onScroll } = useScrollTracker();
 
-  const toggle = (id: string, title: string) => {
-    const next = new Set(registered);
-    if (next.has(id)) {
-      next.delete(id);
-    } else {
-      next.add(id);
-      Alert.alert('You are registered', `We will send joining details for “${title}”.`);
+  // Load this user's saved registrations from the "event_registrations" table.
+  useEffect(() => {
+    let active = true;
+    myEventRegistrations()
+      .then((ids) => active && setRegistered(ids))
+      .catch(() => {
+        // Not fatal: buttons still work and errors are shown when the user taps one.
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const toggle = async (id: string, title: string) => {
+    if (pending) return;
+    const wasRegistered = registered.has(id);
+    setPending(id);
+    try {
+      if (wasRegistered) {
+        await cancelEventRegistration(id);
+      } else {
+        await registerForEvent({ eventId: id, eventTitle: title, fullName: user?.name ?? '', email: user?.email ?? '' });
+        Alert.alert('You are registered', `We will send joining details for “${title}” to ${user?.email ?? 'your email'}.`);
+      }
+      setRegistered((prev) => {
+        const next = new Set(prev);
+        if (wasRegistered) next.delete(id);
+        else next.add(id);
+        return next;
+      });
+    } catch (e) {
+      Alert.alert('Something went wrong', e instanceof Error ? e.message : 'Please try again.');
+    } finally {
+      setPending(null);
     }
-    setRegistered(next);
   };
 
   const sorted = [...events].sort((a, b) => a.date.localeCompare(b.date));
@@ -69,7 +99,7 @@ export default function EventsScreen() {
                 entering={ZoomIn.duration(220).reduceMotion(ReduceMotion.System)}
                 style={[s.buttonText, isRegistered && { color: colors.primary }]}
               >
-                {isRegistered ? '✓ Registered (tap to cancel)' : 'Register'}
+                {pending === item.id ? 'Saving…' : isRegistered ? '✓ Registered (tap to cancel)' : 'Register'}
               </Animated.Text>
             </PressableScale>
           </Card>

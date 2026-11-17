@@ -21,6 +21,7 @@ export default function MoreScreen() {
       <SectionHeader title="About & contact" />
       <ListRow index={6} icon="globe-outline" title="About us" subtitle="Who we are and what we stand for" onPress={() => router.push('/about')} />
       <ListRow index={7} icon="mail-outline" title="Contact us" subtitle="Send us an enquiry" onPress={() => router.push('/contact')} />
+      <ListRow index={7} icon="chatbubbles-outline" title="My enquiries" subtitle="Chat with our team about your enquiries" onPress={() => router.push('/my-enquiries')} />
       <ListRow index={8} icon="location-outline" title="Our offices" subtitle="Find an office near you" onPress={() => router.push('/offices')} />
 
       <SectionHeader title="Legal & help" />

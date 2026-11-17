@@ -1,116 +1,117 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
-import { Platform } from 'react-native';
+import type { Session } from '@supabase/supabase-js';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
-export type User = { name: string; email: string; company?: string };
+import { amIAdmin } from './db';
+import { supabase } from './supabase';
 
-type Account = { user: User; passwordHash: string };
+export type User = { id: string; name: string; email: string; company?: string };
+
+type SignUpInput = { name: string; email: string; company?: string; password: string };
 
 type AuthContextValue = {
   user: User | null;
-  /** False until any saved session has been restored; avoids flashing the login screen. */
+  /** False until the saved session has been checked; avoids flashing the login screen. */
   ready: boolean;
+  /** True when the signed-in email is listed in public.admins. */
+  isAdmin: boolean;
+  /** True while the admin check for the signed-in user is still running. */
+  adminChecking: boolean;
   signIn: (email: string, password: string) => Promise<void>;
-  signUp: (input: { name: string; email: string; company?: string; password: string }) => Promise<void>;
-  signOut: () => void;
+  /** Resolves with needsConfirmation=true when Supabase requires the user to confirm their email first. */
+  signUp: (input: SignUpInput) => Promise<{ needsConfirmation: boolean }>;
+  signOut: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-const ACCOUNTS_KEY = 'nb.accounts';
-const SESSION_KEY = 'nb.session';
+const NOT_CONFIGURED =
+  'Sign-in is not set up yet: add your Supabase URL and publishable key to .env.local (see .env.example) and restart the server.';
 
-/** Browser storage on web; in-memory elsewhere (native persistence needs expo-secure-store). */
-const storage = {
-  get(key: string): string | null {
-    if (Platform.OS !== 'web') return null;
-    try {
-      return globalThis.localStorage?.getItem(key) ?? null;
-    } catch {
-      return null;
-    }
-  },
-  set(key: string, value: string | null) {
-    if (Platform.OS !== 'web') return;
-    try {
-      if (value === null) globalThis.localStorage?.removeItem(key);
-      else globalThis.localStorage?.setItem(key, value);
-    } catch {
-      // Storage unavailable (private mode, blocked): stay signed in for this visit only.
-    }
-  },
-};
-
-/** SHA-256 hex digest where Web Crypto is available, so plain-text passwords are never stored. */
-async function hashPassword(email: string, password: string): Promise<string> {
-  const subtle = globalThis.crypto?.subtle;
-  const input = `${email}:${password}`;
-  if (!subtle) return input; // Native without Web Crypto: in-memory only, never persisted.
-  const bytes = await subtle.digest('SHA-256', new TextEncoder().encode(input));
-  return Array.from(new Uint8Array(bytes), (b) => b.toString(16).padStart(2, '0')).join('');
+function toUser(session: Session | null): User | null {
+  const u = session?.user;
+  if (!u) return null;
+  const meta = (u.user_metadata ?? {}) as { name?: string; company?: string };
+  return { id: u.id, email: u.email ?? '', name: meta.name || u.email || 'there', company: meta.company || undefined };
 }
 
-const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-/**
- * DEMO authentication. Accounts live in this browser only (or in memory on native).
- * Before going live, replace signIn/signUp with calls to a real backend and store the
- * session token with expo-secure-store.
- */
-/** Reads saved accounts and the signed-in email (synchronous browser storage). */
-function restore(): { accounts: Record<string, Account>; user: User | null } {
-  try {
-    const saved = storage.get(ACCOUNTS_KEY);
-    const accounts: Record<string, Account> = saved ? JSON.parse(saved) : {};
-    const sessionEmail = storage.get(SESSION_KEY);
-    return { accounts, user: sessionEmail && accounts[sessionEmail] ? accounts[sessionEmail].user : null };
-  } catch {
-    return { accounts: {}, user: null }; // Corrupt storage: start fresh.
+/** Turns Supabase's technical error messages into plain-English ones for the forms. */
+function friendly(message: string): string {
+  const m = message.toLowerCase();
+  if (m.includes('invalid login credentials')) return 'Incorrect email or password.';
+  if (m.includes('email not confirmed')) return 'Please confirm your email first: open the link we sent you, then log in.';
+  if (m.includes('already registered') || m.includes('already been registered')) {
+    return 'An account with this email already exists. Try logging in.';
   }
+  if (m.includes('rate limit')) return 'Too many attempts. Please wait a minute and try again.';
+  if (m.includes('fetch') || m.includes('network')) return 'Could not reach the server. Check your connection and try again.';
+  return message;
 }
 
+/** Authentication backed by Supabase Auth. Registered users appear in the Supabase dashboard under Authentication. */
 export function AuthProvider({ children }: { children: ReactNode }) {
-  // Restored once, on first render, so there is no flash of the login screen.
-  const [initial] = useState(restore);
-  const [accounts, setAccounts] = useState<Record<string, Account>>(initial.accounts);
-  const [user, setUser] = useState<User | null>(initial.user);
-  // Storage is synchronous, so the session is known immediately. Kept for a future async backend.
-  const ready = true;
+  const [session, setSession] = useState<Session | null>(null);
+  // Without Supabase configured there is no session to wait for.
+  const [ready, setReady] = useState(!supabase);
 
-  const signIn = useCallback(
-    async (email: string, password: string) => {
-      await wait(500);
-      const key = email.trim().toLowerCase();
-      const account = accounts[key];
-      if (!account || account.passwordHash !== (await hashPassword(key, password))) {
-        throw new Error('Incorrect email or password.');
-      }
-      storage.set(SESSION_KEY, key);
-      setUser(account.user);
-    },
-    [accounts],
-  );
-
-  const signUp = useCallback(
-    async ({ name, email, company, password }: { name: string; email: string; company?: string; password: string }) => {
-      await wait(600);
-      const key = email.trim().toLowerCase();
-      if (accounts[key]) throw new Error('An account with this email already exists. Try logging in.');
-      const newUser: User = { name: name.trim(), email: key, company: company?.trim() || undefined };
-      const next = { ...accounts, [key]: { user: newUser, passwordHash: await hashPassword(key, password) } };
-      storage.set(ACCOUNTS_KEY, JSON.stringify(next));
-      storage.set(SESSION_KEY, key);
-      setAccounts(next);
-      setUser(newUser);
-    },
-    [accounts],
-  );
-
-  const signOut = useCallback(() => {
-    storage.set(SESSION_KEY, null);
-    setUser(null);
+  useEffect(() => {
+    if (!supabase) return;
+    // Restore any saved session, then keep in sync with sign-in, sign-out and token refreshes.
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      setReady(true);
+    });
+    const { data } = supabase.auth.onAuthStateChange((_event, next) => setSession(next));
+    return () => data.subscription.unsubscribe();
   }, []);
 
-  const value = useMemo(() => ({ user, ready, signIn, signUp, signOut }), [user, ready, signIn, signUp, signOut]);
+  const signIn = useCallback(async (email: string, password: string) => {
+    if (!supabase) throw new Error(NOT_CONFIGURED);
+    const { error } = await supabase.auth.signInWithPassword({ email: email.trim().toLowerCase(), password });
+    if (error) throw new Error(friendly(error.message));
+  }, []);
+
+  const signUp = useCallback(async ({ name, email, company, password }: SignUpInput) => {
+    if (!supabase) throw new Error(NOT_CONFIGURED);
+    const { data, error } = await supabase.auth.signUp({
+      email: email.trim().toLowerCase(),
+      password,
+      // Stored on the user record; visible in the Supabase dashboard (Authentication > Users > user > raw metadata).
+      options: { data: { name: name.trim(), company: company?.trim() || null } },
+    });
+    if (error) throw new Error(friendly(error.message));
+    // Supabase returns an empty identities list for an email that is already registered (to avoid leaking accounts).
+    if (data.user && data.user.identities?.length === 0) {
+      throw new Error('An account with this email already exists. Try logging in.');
+    }
+    return { needsConfirmation: !data.session };
+  }, []);
+
+  const signOut = useCallback(async () => {
+    await supabase?.auth.signOut();
+  }, []);
+
+  const user = useMemo(() => toUser(session), [session]);
+
+  // Which user id was last confirmed as an admin (see supabase/admin.sql). Deriving isAdmin from it
+  // means a sign-out or account switch can never leave a stale "admin" flag behind.
+  const [adminCheck, setAdminCheck] = useState<{ userId: string; isAdmin: boolean } | null>(null);
+  const userId = user?.id;
+  useEffect(() => {
+    if (!userId) return;
+    let active = true;
+    amIAdmin().then((ok) => active && setAdminCheck({ userId, isAdmin: ok }));
+    return () => {
+      active = false;
+    };
+  }, [userId]);
+  const isAdmin = !!userId && adminCheck?.userId === userId && adminCheck.isAdmin;
+  // True while the signed-in user's admin status hasn't been checked yet.
+  const adminChecking = !!userId && adminCheck?.userId !== userId;
+
+  const value = useMemo(
+    () => ({ user, ready, isAdmin, adminChecking, signIn, signUp, signOut }),
+    [user, ready, isAdmin, adminChecking, signIn, signUp, signOut],
+  );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

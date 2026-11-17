@@ -1,4 +1,4 @@
-import { Link, router } from 'expo-router';
+import { Link } from 'expo-router';
 import { useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, Text, View } from 'react-native';
 
@@ -26,8 +26,6 @@ export default function LoginScreen() {
     setBusy(true);
     try {
       await signIn(email, password);
-      if (router.canGoBack()) router.back();
-      else router.replace('/');
     } catch (e) {
       setFormError(e instanceof Error ? e.message : 'Something went wrong. Please try again.');
     } finally {

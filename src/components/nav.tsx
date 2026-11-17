@@ -3,7 +3,7 @@ import { router, usePathname, type Href } from 'expo-router';
 import { useState } from 'react';
 import { Image } from 'expo-image';
 import { Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
-import Animated, { FadeIn, FadeInDown, ReduceMotion, SlideInLeft, SlideInRight } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeInDown, ReduceMotion, SlideInLeft, SlideInRight, ZoomIn } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { PressableScale } from '@/components/ui';
@@ -11,6 +11,7 @@ import { insights } from '@/data/content';
 import { insightImage } from '@/data/images';
 import { featuredLinks, mainNav, utilityNav, type NavNode } from '@/data/nav';
 import { useAuth } from '@/lib/auth';
+import { useNotifications } from '@/lib/notifications';
 import { colors, spacing } from '@/theme';
 
 /** Desktop-style navbar is used on web when the window is wide enough to fit it. */
@@ -31,10 +32,34 @@ const goSearch = (q: string, replace: boolean) => {
 // Header buttons (phones / narrow windows)
 // ---------------------------------------------------------------------------
 
+/** Bell icon with an animated unread badge; opens the notifications screen. */
+export function NotificationBell({ tint = colors.text, onPress }: { tint?: string; onPress?: () => void }) {
+  const { user } = useAuth();
+  const { unread } = useNotifications();
+  if (!user) return null;
+  return (
+    <Pressable
+      accessibilityLabel={unread ? `Notifications, ${unread} unread` : 'Notifications'}
+      hitSlop={8}
+      style={s.iconBtn}
+      onPress={onPress ?? (() => router.push('/notifications'))}
+    >
+      <Ionicons name={unread ? 'notifications' : 'notifications-outline'} size={22} color={tint} />
+      {unread ? (
+        // Keyed by the count so the badge pops each time a new notification arrives.
+        <Animated.View key={unread} entering={ZoomIn.springify().reduceMotion(ReduceMotion.System)} style={s.badge}>
+          <Text style={s.badgeText}>{unread > 9 ? '9+' : unread}</Text>
+        </Animated.View>
+      ) : null}
+    </Pressable>
+  );
+}
+
 /** Search + hamburger buttons for screen headers. */
 export function HeaderActions({ tint = colors.onPrimary }: { tint?: string }) {
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginRight: Platform.OS === 'web' ? spacing.sm : 0 }}>
+      <NotificationBell tint={tint} />
       <Pressable accessibilityLabel="Search" hitSlop={8} style={s.iconBtn} onPress={() => router.push('/search')}>
         <Ionicons name="search" size={22} color={tint} />
       </Pressable>
@@ -340,7 +365,7 @@ export function DesktopNav() {
 
 /** "Log in" when signed out; "Hi, name · Log out" when signed in. */
 function AccountLink({ onNavigate }: { onNavigate: (href: Href) => void }) {
-  const { user, signOut } = useAuth();
+  const { user, isAdmin, signOut } = useAuth();
   if (!user) {
     return (
       <Pressable onPress={() => onNavigate('/login')} hitSlop={6} style={s.accountLink}>
@@ -351,10 +376,17 @@ function AccountLink({ onNavigate }: { onNavigate: (href: Href) => void }) {
   }
   return (
     <View style={s.accountLink}>
+      <NotificationBell onPress={() => onNavigate('/notifications')} />
       <Ionicons name="person-circle" size={18} color={colors.primary} />
       <Text style={s.accountText} numberOfLines={1}>
         Hi, {user.name.split(' ')[0]}
       </Text>
+      {isAdmin ? (
+        <Pressable onPress={() => onNavigate('/admin')} hitSlop={6} style={s.adminBadge}>
+          <Ionicons name="shield-checkmark" size={14} color={colors.onPrimary} />
+          <Text style={s.adminBadgeText}>Admin</Text>
+        </Pressable>
+      ) : null}
       <Pressable onPress={signOut} hitSlop={6}>
         <Text style={[s.accountText, { color: colors.primaryLink }]}>Log out</Text>
       </Pressable>
@@ -374,6 +406,21 @@ function HoverLink({ label, onPress, style }: { label: string; onPress: () => vo
 
 const s = StyleSheet.create({
   iconBtn: { padding: 6 },
+  badge: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 4,
+    borderRadius: 9,
+    backgroundColor: colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: colors.surface,
+  },
+  badgeText: { color: colors.onPrimary, fontSize: 10, fontWeight: '800' },
 
   // Mobile menu
   menuRoot: { flex: 1, backgroundColor: colors.surface },
@@ -446,6 +493,16 @@ const s = StyleSheet.create({
   langText: { fontSize: 16, color: colors.text },
   accountLink: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   accountText: { fontSize: 15, color: colors.text, fontWeight: '600' },
+  adminBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    backgroundColor: colors.primary,
+  },
+  adminBadgeText: { color: colors.onPrimary, fontSize: 13, fontWeight: '700' },
   deskContact: { backgroundColor: colors.accent, paddingHorizontal: 28, paddingVertical: 14 },
   deskMain: { flexDirection: 'row', alignItems: 'center', height: 92, paddingLeft: 56 },
   deskLogo: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },

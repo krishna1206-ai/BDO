@@ -61,12 +61,17 @@ export function FormField({ label, error, password, style, ...rest }: FieldProps
   );
 }
 
-/** Form-level message (e.g. "Incorrect email or password"). */
-export function FormAlert({ message }: { message: string }) {
+/** Form-level message: an error (default) or a success notice. */
+export function FormAlert({ message, tone = 'error' }: { message: string; tone?: 'error' | 'success' }) {
+  const success = tone === 'success';
   return (
-    <Animated.View entering={FadeInDown.duration(220).reduceMotion(ReduceMotion.System)} style={s.alert}>
-      <Ionicons name="alert-circle" size={18} color="#B42318" />
-      <Text style={s.alertText}>{message}</Text>
+    <Animated.View
+      entering={FadeInDown.duration(220).reduceMotion(ReduceMotion.System)}
+      style={[s.alert, success && s.alertSuccess]}
+      accessibilityLiveRegion="polite"
+    >
+      <Ionicons name={success ? 'checkmark-circle' : 'alert-circle'} size={18} color={success ? '#1E8E5A' : '#B42318'} />
+      <Text style={[s.alertText, success && { color: '#14532D' }]}>{message}</Text>
     </Animated.View>
   );
 }
@@ -100,6 +105,7 @@ const s = StyleSheet.create({
     borderColor: '#FECDCA',
   },
   alertText: { flex: 1, color: '#7A271A', fontSize: 14 },
+  alertSuccess: { backgroundColor: '#ECFDF3', borderColor: '#ABEFC6' },
 });
 
 /** Shared layout for the login and registration screens. */

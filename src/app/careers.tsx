@@ -59,7 +59,7 @@ export default function CareersScreen() {
         <Card
           index={index}
           style={{ marginBottom: spacing.sm }}
-          onPress={() => router.push({ pathname: '/contact', params: { service: `Careers: ${item.title}` } })}
+          onPress={() => router.push(`/apply/${item.id}`)}
         >
           <Tag label={item.type} />
           <Text style={s.title}>{item.title}</Text>

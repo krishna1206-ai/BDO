@@ -4,6 +4,7 @@ import { ActivityIndicator, View } from 'react-native';
 
 import { DesktopNav, HeaderActions, useIsWide } from '@/components/nav';
 import { AuthProvider, useAuth } from '@/lib/auth';
+import { NotificationsProvider } from '@/lib/notifications';
 import { colors } from '@/theme';
 
 const headerRight = () => <HeaderActions />;
@@ -11,7 +12,9 @@ const headerRight = () => <HeaderActions />;
 export default function RootLayout() {
   return (
     <AuthProvider>
-      <AppNavigator />
+      <NotificationsProvider>
+        <AppNavigator />
+      </NotificationsProvider>
     </AuthProvider>
   );
 }
@@ -48,14 +51,14 @@ function AppNavigator() {
         }}
       >
         {/* Signed out: only the login and registration screens are reachable. */}
-        <Stack.Protected guard={!signedIn}>
+        <Stack.Protected guard={!signedIn} redirectTo="/">
           <Stack.Screen name="login" options={{ headerShown: false, animation: 'fade' }} />
           <Stack.Screen name="register" options={{ headerShown: false, animation: 'fade' }} />
           <Stack.Screen name="terms" options={{ title: 'Terms & privacy', headerShown: true, headerRight: undefined }} />
         </Stack.Protected>
 
         {/* Signed in: the whole app. */}
-        <Stack.Protected guard={signedIn}>
+        <Stack.Protected guard={signedIn} redirectTo="/login">
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="menu" options={{ headerShown: false, presentation: 'fullScreenModal', animation: 'slide_from_right' }} />
           <Stack.Screen name="search" options={{ title: 'Search', headerRight: undefined, animation: 'fade' }} />
@@ -65,6 +68,7 @@ function AppNavigator() {
           <Stack.Screen name="insights-section/[id]" options={{ title: 'Insights' }} />
           <Stack.Screen name="events" options={{ title: 'Events' }} />
           <Stack.Screen name="careers" options={{ title: 'Careers' }} />
+          <Stack.Screen name="apply/[id]" options={{ title: 'Apply', animation: 'slide_from_bottom' }} />
           <Stack.Screen name="contact" options={{ title: 'Contact us', animation: 'slide_from_bottom' }} />
           <Stack.Screen name="offices" options={{ title: 'Our offices' }} />
           <Stack.Screen name="industries" options={{ title: 'Industries' }} />
@@ -77,7 +81,13 @@ function AppNavigator() {
           <Stack.Screen name="legal" options={{ title: 'Legal & privacy' }} />
           <Stack.Screen name="fraud-alert" options={{ title: 'Fraud alert' }} />
           <Stack.Screen name="sitemap" options={{ title: 'Sitemap' }} />
+          <Stack.Screen name="notifications" options={{ title: 'Notifications', headerRight: undefined }} />
+          <Stack.Screen name="my-enquiries" options={{ title: 'My enquiries' }} />
+          <Stack.Screen name="chat/[id]" options={{ title: 'Chat', headerRight: undefined }} />
         </Stack.Protected>
+
+        {/* Always reachable: shows its own admin sign-in when signed out, the panel for admins. */}
+        <Stack.Screen name="admin" options={{ title: 'Admin', headerRight: undefined }} />
 
       </Stack>
     </View>

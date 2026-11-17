@@ -1,5 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { Link, router } from 'expo-router';
+import { Link } from 'expo-router';
 import { useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 
@@ -27,6 +27,7 @@ export default function RegisterScreen() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState('');
 
   const submit = async () => {
     const next: Record<string, string> = {};
@@ -41,8 +42,9 @@ export default function RegisterScreen() {
 
     setBusy(true);
     try {
-      await signUp({ name, email, company, password });
-      router.replace('/');
+      const { needsConfirmation } = await signUp({ name, email, company, password });
+      // Without email confirmation the new session signs the user in and the app opens automatically.
+      if (needsConfirmation) setNotice(`Account created. We sent a confirmation link to ${email.trim()}. Open it, then log in.`);
     } catch (e) {
       setFormError(e instanceof Error ? e.message : 'Something went wrong. Please try again.');
     } finally {
@@ -58,6 +60,7 @@ export default function RegisterScreen() {
           <Text style={s.subtitle}>Register to save insights, book events and contact your adviser.</Text>
 
           {formError ? <FormAlert message={formError} /> : null}
+          {notice ? <FormAlert message={notice} tone="success" /> : null}
 
           <FormField label="Full name" value={name} onChangeText={setName} error={errors.name} autoComplete="name" textContentType="name" />
           <FormField
