@@ -96,10 +96,24 @@ export type Job = {
 };
 
 export type Office = {
+  /** Database id (offices added or edited in the admin panel). */
+  id?: string;
   city: string;
+  country?: string;
   address: string;
   phone: string;
+  /** Exact map link; without it the address is searched on Google Maps. */
+  mapUrl?: string;
+  /** Photo link (uploaded or pasted); without it a default office photo is used. */
+  image?: string;
 };
+
+/** Google Maps link for an office: the admin's own link, or a search for its address. */
+export function officeMapUrl(office: Office): string {
+  if (office.mapUrl) return office.mapUrl;
+  const query = [office.address, office.city, office.country].filter(Boolean).join(', ');
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+}
 
 /** Firm name used in menu labels; change here to rebrand every label at once. */
 /** A key contact shown in the "Meet our leader" section of a service page. */

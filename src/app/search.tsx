@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import { FlatList, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Card, styles as ui } from '@/components/ui';
-import { industries, insights, news, offices } from '@/data/content';
+import { industries, insights, news } from '@/data/content';
 import { useCatalog } from '@/lib/catalog';
 import { colors, spacing } from '@/theme';
 
@@ -21,21 +21,27 @@ const otherResults: Result[] = [
     href: `/insight/${i.id}` as Href,
   })),
   ...news.map((n) => ({ key: `n-${n.id}`, kind: 'News', title: n.title, text: n.excerpt, href: `/news/${n.id}` as Href })),
-  ...offices.map((o) => ({ key: `o-${o.city}`, kind: 'Office', title: `${o.city} office`, text: o.address, href: '/offices' as Href })),
 ];
 
 export default function SearchScreen() {
   const params = useLocalSearchParams<{ q?: string }>();
   const [query, setQuery] = useState(params.q ?? '');
-  const { services, topics } = useCatalog();
+  const { services, topics, offices } = useCatalog();
 
   const index = useMemo<Result[]>(
     () => [
       ...services.map((s) => ({ key: `s-${s.id}`, kind: 'Service', title: s.title, text: s.summary, href: `/service/${s.id}` as Href })),
       ...topics.map((x) => ({ key: `t-${x.id}`, kind: 'Page', title: x.title, text: x.summary, href: `/topic/${x.id}` as Href })),
       ...otherResults,
+      ...offices.map((o) => ({
+        key: `o-${o.id ?? o.city}`,
+        kind: 'Office',
+        title: `${o.city} office`,
+        text: [o.address, o.country].filter(Boolean).join(', '),
+        href: '/offices' as Href,
+      })),
     ],
-    [services, topics],
+    [services, topics, offices],
   );
 
   const results = useMemo(() => {

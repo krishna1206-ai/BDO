@@ -19,6 +19,7 @@ function fail(message: string): never {
       site_services: 'services.sql',
       site_events: 'posts.sql',
       site_jobs: 'posts.sql',
+      site_offices: 'offices.sql',
       newsletter_subscribers: 'newsletter.sql',
     };
     const file = (table && files[table]) || 'schema.sql';
@@ -437,3 +438,33 @@ export async function removeSubscriber(id: number) {
   const { error } = await client().from('newsletter_subscribers').delete().eq('id', id);
   if (error) fail(error.message);
 }
+
+// ----- site_offices (admin-managed office locations, see supabase/offices.sql) ---
+
+export type SiteOfficeRow = {
+  id: string;
+  city: string;
+  country: string;
+  address: string;
+  phone: string;
+  map_url: string | null;
+  image_url: string | null;
+};
+
+/** Every office, newest first (so offices an admin adds appear at the top). */
+export async function listSiteOffices(): Promise<SiteOfficeRow[]> {
+  const { data, error } = await client()
+    .from('site_offices')
+    .select('id, city, country, address, phone, map_url, image_url')
+    .order('created_at', { ascending: false })
+    .limit(500);
+  if (error) fail(error.message);
+  return (data ?? []) as SiteOfficeRow[];
+}
+
+/** Adds (no id) or updates (with id) an office. */
+export async function saveSiteOffice(row: Omit<SiteOfficeRow, 'id'> & { id?: string }) {
+  await savePost('site_offices', row);
+}
+
+export const deleteSiteOffice = (id: string) => deletePost('site_offices', id);

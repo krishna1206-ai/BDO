@@ -21,8 +21,9 @@ import { scheduleOnRN } from 'react-native-worklets';
 import { EMAIL_RE } from '@/components/form';
 import { HeaderActions, useIsWide } from '@/components/nav';
 import { Card, PressableScale, PrimaryButton, Reveal, Tag } from '@/components/ui';
-import { formatDate, offices, type HeroSlide, type Industry, type Insight, type Stat } from '@/data/content';
+import { formatDate, type HeroSlide, type Industry, type Insight, type Stat } from '@/data/content';
 import { heroSlideImages, industryImages, insightImage, officesBannerImage } from '@/data/images';
+import { useCatalog } from '@/lib/catalog';
 import { subscribeToNewsletter } from '@/lib/db';
 import { colors, radius, spacing } from '@/theme';
 
@@ -329,13 +330,14 @@ export function IndustriesRail({ items }: { items: Industry[] }) {
 // ---------------------------------------------------------------------------
 
 export function OfficeBanner() {
+  const { offices } = useCatalog();
   return (
     <PressableScale style={s.banner} onPress={() => router.push('/offices')}>
       <Image source={officesBannerImage} style={StyleSheet.absoluteFill} contentFit="cover" transition={250} />
       <View style={[StyleSheet.absoluteFill, s.bannerOverlay]} />
       <Ionicons name="location" size={26} color={colors.accent} />
       <Text style={s.bannerTitle}>Find a Northbridge office near you</Text>
-      <Text style={s.bannerText}>{offices.length} offices across England, Scotland and Wales →</Text>
+      <Text style={s.bannerText}>{offices.length ? `${offices.length} offices. Find the one nearest you →` : 'See all our locations →'}</Text>
     </PressableScale>
   );
 }

@@ -9,17 +9,28 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import {
   events as builtInEvents,
   jobs as builtInJobs,
+  offices as builtInOffices,
   services as builtInServices,
   type EventItem,
   type IconName,
   type Job,
+  type Office,
   type Service,
 } from '@/data/content';
 import { photoByKey, serviceImages, type PhotoSource } from '@/data/images';
 import { mainNav as builtInNav, servicesNav, topics as builtInTopics, type NavNode, type Topic } from '@/data/nav';
 
 import { useAuth } from './auth';
-import { listSiteEvents, listSiteJobs, listSiteServices, type SiteEventRow, type SiteJobRow, type SiteServiceRow } from './db';
+import {
+  listSiteEvents,
+  listSiteJobs,
+  listSiteOffices,
+  listSiteServices,
+  type SiteEventRow,
+  type SiteJobRow,
+  type SiteOfficeRow,
+  type SiteServiceRow,
+} from './db';
 
 type CatalogValue = {
   services: Service[];
@@ -27,6 +38,7 @@ type CatalogValue = {
   mainNav: NavNode[];
   events: EventItem[];
   jobs: Job[];
+  offices: Office[];
   /** Admin-added services as stored in the database. */
   custom: SiteServiceRow[];
   /** False until the database content has been fetched (or failed to). */
@@ -90,17 +102,28 @@ const toJob = (r: SiteJobRow): Job => ({
   description: r.description || undefined,
   image: r.image_url || undefined,
 });
+const toOffice = (r: SiteOfficeRow): Office => ({
+  id: r.id,
+  city: r.city,
+  country: r.country || undefined,
+  address: r.address,
+  phone: r.phone,
+  mapUrl: r.map_url || undefined,
+  image: r.image_url || undefined,
+});
+
 
 type Remote = {
   services: SiteServiceRow[];
   /** null = table not set up (or offline): use the built-in list. */
   events: EventItem[] | null;
   jobs: Job[] | null;
+  offices: Office[] | null;
 };
 
 /** Fetches everything; each part falls back on its own if its table isn't set up yet. */
 async function fetchRemote(): Promise<Remote> {
-  const [services, events, jobs] = await Promise.all([
+  const [services, events, jobs, offices] = await Promise.all([
     listSiteServices().catch(() => [] as SiteServiceRow[]),
     listSiteEvents()
       .then((rows) => rows.map(toEvent))
@@ -108,14 +131,17 @@ async function fetchRemote(): Promise<Remote> {
     listSiteJobs()
       .then((rows) => rows.map(toJob))
       .catch(() => null),
+    listSiteOffices()
+      .then((rows) => rows.map(toOffice))
+      .catch(() => null),
   ]);
-  return { services, events, jobs };
+  return { services, events, jobs, offices };
 }
 
 export function CatalogProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const userId = user?.id;
-  const [remote, setRemote] = useState<Remote>({ services: [], events: null, jobs: null });
+  const [remote, setRemote] = useState<Remote>({ services: [], events: null, jobs: null, offices: null });
   const [loaded, setLoaded] = useState(false);
 
   const reload = useCallback(async () => {
@@ -185,6 +211,7 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
       // Until the database answers, show nothing rather than posts an admin may have removed.
       events: loaded ? (remote.events ?? builtInEvents) : [],
       jobs: loaded ? (remote.jobs ?? builtInJobs) : [],
+      offices: loaded ? (remote.offices ?? builtInOffices) : [],
       custom,
       loaded,
       // An admin-chosen photo wins; otherwise the built-in photo (or the default for added services).

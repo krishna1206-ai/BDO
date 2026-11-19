@@ -22,8 +22,8 @@ import Animated, { FadeIn, ReduceMotion } from 'react-native-reanimated';
 
 import { EMAIL_RE, FormAlert, FormField, authStyles } from '@/components/form';
 import { styles as ui } from '@/components/ui';
-import { formatDate, type EventItem, type Job, type Leader } from '@/data/content';
-import { eventImage, isPhotoLink, photoChoices, serviceImages, type PhotoSource } from '@/data/images';
+import { formatDate, officeMapUrl, type EventItem, type Job, type Leader, type Office } from '@/data/content';
+import { eventImage, isPhotoLink, officeImage, photoChoices, serviceImages, type PhotoSource } from '@/data/images';
 import { useAuth } from '@/lib/auth';
 import { useCatalog } from '@/lib/catalog';
 import {
@@ -39,6 +39,7 @@ import {
   createSiteService,
   deleteSiteEvent,
   deleteSiteJob,
+  deleteSiteOffice,
   deleteSiteService,
   listAdmins,
   removeAdmin,
@@ -46,6 +47,7 @@ import {
   resetSiteService,
   saveSiteEvent,
   saveSiteJob,
+  saveSiteOffice,
   setApplicationStatus,
   setEnquiryStatus,
   updateSiteService,
@@ -67,6 +69,7 @@ type Tab =
   | 'services'
   | 'event-posts'
   | 'job-posts'
+  | 'offices'
   | 'users'
   | 'enquiries'
   | 'applications'
@@ -80,6 +83,7 @@ const TABS: { id: Tab; label: string; icon: keyof typeof Ionicons.glyphMap }[] =
   { id: 'services', label: 'Services', icon: 'grid-outline' },
   { id: 'event-posts', label: 'Events', icon: 'megaphone-outline' },
   { id: 'job-posts', label: 'Jobs', icon: 'document-text-outline' },
+  { id: 'offices', label: 'Locations', icon: 'location-outline' },
   { id: 'users', label: 'Users', icon: 'people-outline' },
   { id: 'enquiries', label: 'Enquiries', icon: 'mail-outline' },
   { id: 'applications', label: 'Applications', icon: 'briefcase-outline' },
@@ -173,6 +177,7 @@ export default function AdminScreen() {
         {tab === 'services' ? <ServicesTab /> : null}
         {tab === 'event-posts' ? <EventPostsTab /> : null}
         {tab === 'job-posts' ? <JobPostsTab /> : null}
+        {tab === 'offices' ? <OfficesTab /> : null}
         {tab === 'users' ? <UsersTab /> : null}
         {tab === 'enquiries' ? <EnquiriesTab /> : null}
         {tab === 'applications' ? <ApplicationsTab /> : null}
@@ -1324,6 +1329,176 @@ function JobPostsTab() {
             onRemove={() => remove(j)}
             onCancel={() => setConfirmId(null)}
           />
+        </View>
+      ))}
+    </ScrollView>
+  );
+}
+
+type OfficeForm = { id: string | null; city: string; country: string; address: string; phone: string; mapUrl: string; image: string };
+const emptyOffice = (): OfficeForm => ({ id: null, city: '', country: '', address: '', phone: '', mapUrl: '', image: '' });
+
+/** Office locations shown on the Locations page. */
+function OfficesTab() {
+  const { offices, reload } = useCatalog();
+  const [form, setForm] = useState<OfficeForm>(emptyOffice);
+  const [message, setMessage] = useState<{ tone: 'error' | 'success'; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [confirmId, setConfirmId] = useState<string | null>(null);
+  const scroller = useRef<ComponentRef<typeof ScrollView>>(null);
+  const set = <K extends keyof OfficeForm>(k: K, v: OfficeForm[K]) => setForm((f) => ({ ...f, [k]: v }));
+
+  const edit = (o: Office) => {
+    setMessage(null);
+    setForm({
+      id: o.id ?? null,
+      city: o.city,
+      country: o.country ?? '',
+      address: o.address,
+      phone: o.phone,
+      mapUrl: o.mapUrl ?? '',
+      image: o.image ?? '',
+    });
+    scroller.current?.scrollTo({ y: 0, animated: true });
+  };
+
+  const save = async () => {
+    if (busy) return;
+    const city = form.city.trim();
+    const mapUrl = form.mapUrl.trim();
+    if (!city) return setMessage({ tone: 'error', text: 'Enter the city.' });
+    if (!form.address.trim()) return setMessage({ tone: 'error', text: 'Enter the address.' });
+    if (mapUrl && !/^https?:\/\/\S+$/i.test(mapUrl)) {
+      return setMessage({ tone: 'error', text: 'Paste a full map link starting with https://, or leave it empty.' });
+    }
+    setBusy(true);
+    setMessage(null);
+    try {
+      await saveSiteOffice({
+        id: form.id ?? undefined,
+        city,
+        country: form.country.trim(),
+        address: form.address.trim(),
+        phone: form.phone.trim(),
+        map_url: mapUrl || null,
+        image_url: form.image || null,
+      });
+      await reload();
+      setMessage({ tone: 'success', text: `${city} office ${form.id ? 'saved' : 'added'}. It is live on the Locations page now.` });
+      setForm(emptyOffice());
+    } catch (e) {
+      setMessage({ tone: 'error', text: e instanceof Error ? e.message : 'Could not save the office.' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (o: Office) => {
+    setConfirmId(null);
+    setMessage(null);
+    if (!o.id) return;
+    try {
+      await deleteSiteOffice(o.id);
+      if (form.id === o.id) setForm(emptyOffice());
+      await reload();
+      setMessage({ tone: 'success', text: `${o.city} office removed.` });
+    } catch (err) {
+      setMessage({ tone: 'error', text: err instanceof Error ? err.message : 'Could not remove the office.' });
+    }
+  };
+
+  // What the Map button will open for the office in the form.
+  const previewMap = form.city.trim() || form.address.trim()
+    ? officeMapUrl({ city: form.city.trim(), country: form.country.trim(), address: form.address.trim(), phone: '', mapUrl: form.mapUrl.trim() || undefined })
+    : '';
+
+  return (
+    <ScrollView ref={scroller} contentContainerStyle={s.pad} keyboardShouldPersistTaps="handled">
+      <Text style={s.tabTitle}>Locations</Text>
+      <Text style={[s.rowMeta, { marginTop: 4 }]}>Add, change or remove the offices shown on the Locations page.</Text>
+
+      <View style={[s.row, { marginTop: spacing.md, maxWidth: 760 }]}>
+        <Text style={s.rowTitle}>{form.id ? `Edit ${form.city || 'office'}` : 'Add a location'}</Text>
+        <View style={s.leaderGrid}>
+          <View style={s.leaderCell}>
+            <FormField label="City" value={form.city} onChangeText={(v) => set('city', v)} placeholder="e.g. Mumbai" />
+          </View>
+          <View style={s.leaderCell}>
+            <FormField label="Country" value={form.country} onChangeText={(v) => set('country', v)} placeholder="e.g. India" />
+          </View>
+        </View>
+        <FormField
+          label="Address"
+          value={form.address}
+          onChangeText={(v) => set('address', v)}
+          multiline
+          style={[s.multiline, { minHeight: 64 }]}
+          placeholder="Building, street, area, postcode"
+        />
+        <FormField
+          label="Phone (shown as a Call link)"
+          value={form.phone}
+          onChangeText={(v) => set('phone', v)}
+          placeholder="+91 22 0000 0000"
+          keyboardType="phone-pad"
+        />
+        <FormField
+          label="Map link (optional)"
+          value={form.mapUrl}
+          onChangeText={(v) => set('mapUrl', v)}
+          placeholder="Paste a Google Maps share link, or leave empty to use the address"
+          autoCapitalize="none"
+          keyboardType="url"
+        />
+        {previewMap ? (
+          <Pressable onPress={() => Linking.openURL(previewMap)} style={{ alignSelf: 'flex-start', marginTop: 6 }} hitSlop={4}>
+            <Text style={[s.rowMeta, { color: colors.primaryLink, fontWeight: '700' }]}>Test the Map button ↗</Text>
+          </Pressable>
+        ) : null}
+        <ImageField value={form.image} onChange={(v) => set('image', v)} fallback={officeImage(form.city.trim(), 1)} />
+
+        {message ? <FormAlert tone={message.tone} message={message.text} /> : null}
+        <View style={[s.toolbarRow, { marginTop: spacing.md, flexWrap: 'wrap' }]}>
+          <Pressable onPress={save} disabled={busy} style={[s.addBtn, busy && { opacity: 0.7 }]}>
+            <Ionicons name={form.id ? 'save-outline' : 'add'} size={18} color={colors.onPrimary} />
+            <Text style={{ color: colors.onPrimary, fontWeight: '700' }}>{busy ? 'Saving…' : form.id ? 'Save changes' : 'Add location'}</Text>
+          </Pressable>
+          {form.id || form.city ? (
+            <Pressable onPress={() => setForm(emptyOffice())} style={s.exportBtn}>
+              <Text style={s.exportText}>{form.id ? 'Cancel' : 'Clear'}</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      </View>
+
+      <Text style={[s.tabTitle, { fontSize: 18, marginTop: spacing.xl, marginBottom: spacing.sm }]}>
+        All locations <Text style={s.count}>({offices.length})</Text>
+      </Text>
+      {offices.length === 0 ? <Text style={s.empty}>No locations yet.</Text> : null}
+      {offices.map((o, i) => (
+        <View key={o.id ?? o.city} style={[s.row, s.postRow]}>
+          <Image source={o.image ? { uri: o.image } : officeImage(o.city, i)} style={s.postThumb} contentFit="cover" />
+          <View style={{ flex: 1, minWidth: 180 }}>
+            <Text style={s.rowTitle}>
+              {o.city}
+              {o.country ? <Text style={s.rowTopic}>  ·  {o.country}</Text> : null}
+            </Text>
+            <Text style={s.rowMeta} numberOfLines={2}>
+              {o.address}
+              {o.phone ? ` · ${o.phone}` : ''}
+            </Text>
+          </View>
+          {o.id ? (
+            <PostActions
+              confirming={confirmId === o.id}
+              onEdit={() => edit(o)}
+              onAskRemove={() => setConfirmId(o.id ?? null)}
+              onRemove={() => remove(o)}
+              onCancel={() => setConfirmId(null)}
+            />
+          ) : (
+            <Text style={s.badge}>Run offices.sql to edit</Text>
+          )}
         </View>
       ))}
     </ScrollView>
