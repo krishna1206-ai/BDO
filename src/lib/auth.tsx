@@ -60,8 +60,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(data.session);
       setReady(true);
     });
-    const { data } = supabase.auth.onAuthStateChange((_event, next) => setSession(next));
-    return () => data.subscription.unsubscribe();
+    // Supabase also relays other tabs' sign-ins and sign-outs here. Re-read this tab's own session
+    // instead of trusting the event, so another tab's login or logout can't switch this tab's user.
+    // (Deferred: calling Supabase inside this callback can deadlock its auth lock.)
+    const client = supabase;
+    let active = true;
+    const { data } = client.auth.onAuthStateChange(() => {
+      setTimeout(() => {
+        client.auth.getSession().then(({ data: current }) => active && setSession(current.session));
+      }, 0);
+    });
+    return () => {
+      active = false;
+      data.subscription.unsubscribe();
+    };
   }, []);
 
   const signIn = useCallback(async (email: string, password: string) => {
@@ -87,7 +99,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
-    await supabase?.auth.signOut();
+    // 'local' ends only this tab's session; the default ('global') would sign the user out everywhere.
+    await supabase?.auth.signOut({ scope: 'local' });
   }, []);
 
   const user = useMemo(() => toUser(session), [session]);
