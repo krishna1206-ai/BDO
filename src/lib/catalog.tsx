@@ -1,34 +1,37 @@
 // Content that admins can change from the admin panel, merged with the app's built-in content:
 // - services: built-in ones from src/data plus admin-added ones (supabase/services.sql)
-// - job posts: stored in the database (supabase/posts.sql); the built-in list is only
+// - events and job posts: stored in the database (supabase/posts.sql); the built-in lists are only
 //   used until that table exists.
-// Everything becomes the same Service / Topic / Job objects as before, so it renders
+// Everything becomes the same Service / Topic / EventItem / Job objects as before, so it renders
 // with exactly the same screens and styles.
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import {
+  events as builtInEvents,
   jobs as builtInJobs,
   services as builtInServices,
+  type EventItem,
   type IconName,
   type Job,
   type Service,
 } from '@/data/content';
-import { photoByKey, serviceImages } from '@/data/images';
+import { photoByKey, serviceImages, type PhotoSource } from '@/data/images';
 import { mainNav as builtInNav, servicesNav, topics as builtInTopics, type NavNode, type Topic } from '@/data/nav';
 
 import { useAuth } from './auth';
-import { listSiteJobs, listSiteServices, type SiteJobRow, type SiteServiceRow } from './db';
+import { listSiteEvents, listSiteJobs, listSiteServices, type SiteEventRow, type SiteJobRow, type SiteServiceRow } from './db';
 
 type CatalogValue = {
   services: Service[];
   topics: Topic[];
   mainNav: NavNode[];
+  events: EventItem[];
   jobs: Job[];
   /** Admin-added services as stored in the database. */
   custom: SiteServiceRow[];
   /** False until the database content has been fetched (or failed to). */
   loaded: boolean;
-  serviceImage: (serviceId: string) => number;
+  serviceImage: (serviceId: string) => PhotoSource;
   topicById: (id: string) => Topic | undefined;
   /** True for services and pages that ship with the app (they can be edited, removed and reset). */
   isBuiltIn: (id: string) => boolean;
@@ -63,7 +66,19 @@ const toTopic = (r: SiteServiceRow): Topic => ({
   parent: { kind: 'service', id: r.parent_id as string },
   overview: r.overview.length ? r.overview : undefined,
   custom: true,
+  image: r.image || undefined,
   leader: r.leader ?? undefined,
+});
+
+const toEvent = (r: SiteEventRow): EventItem => ({
+  id: r.id,
+  title: r.title,
+  date: r.date,
+  format: r.format,
+  location: r.location,
+  description: r.description,
+  image: r.image_url || undefined,
+  createdAt: r.created_at,
 });
 
 const toJob = (r: SiteJobRow): Job => ({
@@ -79,24 +94,28 @@ const toJob = (r: SiteJobRow): Job => ({
 type Remote = {
   services: SiteServiceRow[];
   /** null = table not set up (or offline): use the built-in list. */
+  events: EventItem[] | null;
   jobs: Job[] | null;
 };
 
 /** Fetches everything; each part falls back on its own if its table isn't set up yet. */
 async function fetchRemote(): Promise<Remote> {
-  const [services, jobs] = await Promise.all([
+  const [services, events, jobs] = await Promise.all([
     listSiteServices().catch(() => [] as SiteServiceRow[]),
+    listSiteEvents()
+      .then((rows) => rows.map(toEvent))
+      .catch(() => null),
     listSiteJobs()
       .then((rows) => rows.map(toJob))
       .catch(() => null),
   ]);
-  return { services, jobs };
+  return { services, events, jobs };
 }
 
 export function CatalogProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const userId = user?.id;
-  const [remote, setRemote] = useState<Remote>({ services: [], jobs: null });
+  const [remote, setRemote] = useState<Remote>({ services: [], events: null, jobs: null });
   const [loaded, setLoaded] = useState(false);
 
   const reload = useCallback(async () => {
@@ -148,6 +167,7 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
           parent: { kind: 'service', id: r.parent_id ?? t.parent.id },
           overview,
           leader: r.leader ?? undefined,
+          image: r.image || undefined,
           // Pages with long-form content keep their sections; the edited overview replaces the intro.
           page: t.page ? { ...t.page, intro: overview ?? t.page.intro } : undefined,
         },
@@ -163,6 +183,7 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
       topics,
       mainNav,
       // Until the database answers, show nothing rather than posts an admin may have removed.
+      events: loaded ? (remote.events ?? builtInEvents) : [],
       jobs: loaded ? (remote.jobs ?? builtInJobs) : [],
       custom,
       loaded,

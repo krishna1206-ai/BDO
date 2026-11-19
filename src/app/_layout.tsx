@@ -66,6 +66,7 @@ function AppNavigator() {
           <Stack.Screen name="insight/[id]" options={{ title: 'Insight' }} />
           <Stack.Screen name="topic/[id]" options={{ title: '' }} />
           <Stack.Screen name="insights-section/[id]" options={{ title: 'Insights' }} />
+          <Stack.Screen name="events" options={{ title: 'Events' }} />
           <Stack.Screen name="careers" options={{ title: 'Careers' }} />
           <Stack.Screen name="apply/[id]" options={{ title: 'Apply', animation: 'slide_from_bottom' }} />
           <Stack.Screen name="contact" options={{ title: 'Contact us', animation: 'slide_from_bottom' }} />

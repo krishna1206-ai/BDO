@@ -78,3 +78,7 @@ alter table public.site_services add column if not exists hidden boolean not nul
 -- Shape: {"name": "...", "role": "...", "office": "...", "email": "..."}; null = the default contact.
 alter table public.site_services add column if not exists leader jsonb
   check (leader is null or (jsonb_typeof(leader) = 'object' and length(leader::text) <= 1000));
+
+-- Photos can also be an uploaded or pasted web link (added later; safe to re-run).
+alter table public.site_services drop constraint if exists site_services_image_check;
+alter table public.site_services add constraint site_services_image_check check (length(image) <= 1000);

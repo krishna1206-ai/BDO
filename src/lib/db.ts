@@ -17,6 +17,7 @@ function fail(message: string): never {
     const files: Record<string, string> = {
       admins: 'admin.sql',
       site_services: 'services.sql',
+      site_events: 'posts.sql',
       site_jobs: 'posts.sql',
       newsletter_subscribers: 'newsletter.sql',
     };
@@ -44,6 +45,31 @@ export async function submitEnquiry(input: { fullName: string; email: string; co
       topic: input.topic?.trim() || null,
       message: input.message.trim(),
     });
+  if (error) fail(error.message);
+}
+
+// ----- event_registrations ---------------------------------------------------
+
+/** Ids of the events the signed-in user is registered for. */
+export async function myEventRegistrations(): Promise<Set<string>> {
+  const { data, error } = await client().from('event_registrations').select('event_id');
+  if (error) fail(error.message);
+  return new Set((data ?? []).map((r) => r.event_id as string));
+}
+
+export async function registerForEvent(input: { eventId: string; eventTitle: string; fullName: string; email: string }) {
+  const { error } = await client().from('event_registrations').insert({
+    event_id: input.eventId,
+    event_title: input.eventTitle,
+    full_name: input.fullName,
+    email: input.email,
+  });
+  // Already registered (unique constraint) counts as success.
+  if (error && error.code !== '23505') fail(error.message);
+}
+
+export async function cancelEventRegistration(eventId: string) {
+  const { error } = await client().from('event_registrations').delete().eq('event_id', eventId);
   if (error) fail(error.message);
 }
 
@@ -97,6 +123,7 @@ export type EnquiryRow = {
   status: EnquiryStatus;
   created_at: string;
 };
+export type RegistrationRow = { id: number; event_title: string; full_name: string | null; email: string | null; created_at: string };
 export type ApplicationRow = {
   id: number;
   job_title: string;
@@ -124,20 +151,21 @@ export async function adminCounts() {
     if (error) fail(error.message);
     return n ?? 0;
   };
-  const [users, enquiries, newEnquiries, applications, newApplications, cyberChecks, admins] =
+  const [users, enquiries, newEnquiries, applications, newApplications, registrations, cyberChecks, admins] =
     await Promise.all([
       count('profiles'),
       count('enquiries'),
       count('enquiries', 'new'),
       count('job_applications'),
       count('job_applications', 'received'),
+      count('event_registrations'),
       count('cyber_check_results'),
       count('admins'),
     ]);
-  return { users, enquiries, newEnquiries, applications, newApplications, cyberChecks, admins };
+  return { users, enquiries, newEnquiries, applications, newApplications, registrations, cyberChecks, admins };
 }
 
-export type ActivityItem = { kind: 'user' | 'enquiry' | 'application' | 'cyber'; title: string; detail: string; at: string };
+export type ActivityItem = { kind: 'user' | 'enquiry' | 'application' | 'event' | 'cyber'; title: string; detail: string; at: string };
 
 /** The most recent activity across every table, newest first. */
 export async function adminRecentActivity(limit = 12): Promise<ActivityItem[]> {
@@ -146,16 +174,18 @@ export async function adminRecentActivity(limit = 12): Promise<ActivityItem[]> {
     if (error) fail(error.message);
     return (data ?? []) as unknown as Record<string, string>[];
   };
-  const [users, enquiries, applications, cyber] = await Promise.all([
+  const [users, enquiries, applications, events, cyber] = await Promise.all([
     recent('profiles', 'full_name, email, created_at'),
     recent('enquiries', 'full_name, topic, created_at'),
     recent('job_applications', 'full_name, job_title, created_at'),
+    recent('event_registrations', 'full_name, event_title, created_at'),
     recent('cyber_check_results', 'result, score, created_at'),
   ]);
   const items: ActivityItem[] = [
     ...users.map((r) => ({ kind: 'user' as const, title: 'New user', detail: `${r.full_name || r.email}`, at: r.created_at })),
     ...enquiries.map((r) => ({ kind: 'enquiry' as const, title: 'New enquiry', detail: `${r.full_name}${r.topic ? ` · ${r.topic}` : ''}`, at: r.created_at })),
     ...applications.map((r) => ({ kind: 'application' as const, title: 'Job application', detail: `${r.full_name} · ${r.job_title}`, at: r.created_at })),
+    ...events.map((r) => ({ kind: 'event' as const, title: 'Event sign-up', detail: `${r.full_name || 'Someone'} · ${r.event_title}`, at: r.created_at })),
     ...cyber.map((r) => ({ kind: 'cyber' as const, title: 'Cyber Risk Check', detail: `${r.result} · ${r.score}%`, at: r.created_at })),
   ];
   return items.sort((a, b) => b.at.localeCompare(a.at)).slice(0, limit);
@@ -195,6 +225,7 @@ export const adminProfiles = () => listAll<ProfileRow>('profiles', 'id, full_nam
 export const adminEnquiries = () => listAll<EnquiryRow>('enquiries', 'id, full_name, email, company, topic, message, status, created_at');
 export const adminApplications = () =>
   listAll<ApplicationRow>('job_applications', 'id, job_title, full_name, email, phone, cv_url, message, status, created_at');
+export const adminRegistrations = () => listAll<RegistrationRow>('event_registrations', 'id, event_title, full_name, email, created_at');
 
 export async function setEnquiryStatus(id: number, status: EnquiryStatus) {
   const { error } = await client().from('enquiries').update({ status }).eq('id', id);
@@ -292,7 +323,33 @@ export async function deleteSiteService(id: string) {
   if (count === 0) throw new Error('Could not remove: only admins can change services.');
 }
 
-// ----- site_jobs (admin-managed job posts, see supabase/posts.sql) ----------
+// ----- site_events / site_jobs (admin-managed posts, see supabase/posts.sql) --
+
+export type SiteEventRow = {
+  id: string;
+  title: string;
+  date: string;
+  format: 'Webinar' | 'In person';
+  location: string;
+  description: string;
+  image_url: string | null;
+  created_at: string;
+};
+
+const EVENT_COLUMNS = 'id, title, date, format, location, description, image_url, created_at';
+
+export async function listSiteEvents(): Promise<SiteEventRow[]> {
+  const { data, error } = await client().from('site_events').select(EVENT_COLUMNS).order('date', { ascending: true }).limit(500);
+  if (error) fail(error.message);
+  return (data ?? []) as SiteEventRow[];
+}
+
+/** Adds (no id) or updates (with id) an event post. */
+export async function saveSiteEvent(row: Omit<SiteEventRow, 'id' | 'created_at'> & { id?: string }) {
+  await savePost('site_events', row);
+}
+
+export const deleteSiteEvent = (id: string) => deletePost('site_events', id);
 
 export type SiteJobRow = {
   id: string;

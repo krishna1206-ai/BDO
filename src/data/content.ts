@@ -70,6 +70,19 @@ export type Adviser = {
   phone: string;
 };
 
+export type EventItem = {
+  id: string;
+  title: string;
+  date: string;
+  format: 'Webinar' | 'In person';
+  /** When an admin added it (database events only); used to list the newest first in the admin panel. */
+  createdAt?: string;
+  /** Photo link (uploaded by an admin or pasted); without it the format's default photo is used. */
+  image?: string;
+  location: string;
+  description: string;
+};
+
 export type Job = {
   id: string;
   title: string;
@@ -616,6 +629,15 @@ export const advisers: Adviser[] = [
   { id: '8', name: 'Ravi Patel', role: 'Partner', speciality: 'Advisory', office: 'London', email: 'ravi.patel@example.com', phone: '+44 20 0000 0008' },
   { id: '9', name: 'Fiona Grant', role: 'Director', speciality: `${BRAND} Digital`, office: 'Edinburgh', email: 'fiona.grant@example.com', phone: '+44 131 000 0009' },
   { id: '10', name: 'Owen Hughes', role: 'Senior Manager', speciality: 'International Desk', office: 'Cardiff', email: 'owen.hughes@example.com', phone: '+44 29 0000 0010' },
+];
+
+export const events: EventItem[] = [
+  { id: 'e1', title: 'Autumn Budget briefing', date: '2026-11-12', format: 'Webinar', location: 'Online', description: 'Our tax partners walk through the Budget and answer your questions live.' },
+  { id: 'e2', title: 'Selling your business: getting deal-ready', date: '2026-11-26', format: 'In person', location: 'Manchester', description: 'A practical session for owners considering an exit in the next three years.' },
+  { id: 'e3', title: 'Cyber risk for boards', date: '2026-12-03', format: 'Webinar', location: 'Online', description: 'How directors can oversee cyber risk effectively.' },
+  { id: 'e4', title: 'Year-end reporting update', date: '2026-12-10', format: 'In person', location: 'London', description: 'Key accounting changes finance teams need to know before year end.' },
+  { id: 'e5', title: 'Net zero for mid-sized businesses', date: '2027-01-14', format: 'Webinar', location: 'Online', description: 'A practical first step guide to measuring and cutting your carbon footprint.' },
+  { id: 'e6', title: 'Scaling AI in your finance team', date: '2027-01-28', format: 'In person', location: 'Edinburgh', description: 'Hear from finance leaders who have moved AI from pilot to everyday use.' },
 ];
 
 export const jobs: Job[] = [

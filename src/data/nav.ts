@@ -12,6 +12,8 @@ export type Topic = {
   parent: { kind: "service" | "industry" | "about"; id: string };
   /** Overview paragraphs for template pages (used by services added from the admin panel). */
   overview?: string[];
+  /** Own photo set by an admin (photoChoices key or web link); otherwise the main service's photo. */
+  image?: string;
   /** "Meet our leader" contact set by an admin. */
   leader?: import('./content').Leader;
   /** Added from the admin panel: the page shows only the admin's own text, no template copy. */
@@ -1090,6 +1092,7 @@ export const featuredLinks: { id: string; title: string; href: Href }[] = [
 
 export const utilityNav: { title: string; href: Href }[] = [
   { title: "Locations", href: "/offices" },
+  { title: "Events", href: "/events" },
   { title: "Careers", href: "/careers" },
   { title: "News", href: "/news" },
 ];

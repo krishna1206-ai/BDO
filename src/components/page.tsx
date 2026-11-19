@@ -25,6 +25,7 @@ import Animated, {
 
 import { PrimaryButton, Reveal, ScrollRevealProvider, useScrollTracker } from '@/components/ui';
 import type { Leader } from '@/data/content';
+import type { PhotoSource } from '@/data/images';
 import { colors, spacing } from '@/theme';
 
 /** Two-column layout from this width up; below it the side panel stacks under the intro. */
@@ -52,7 +53,7 @@ export type { Leader };
 type Props = {
   crumbs: Crumb[];
   title: string;
-  image: number;
+  image: PhotoSource;
   headline: string;
   /** One string per paragraph (or a single string). An empty array renders nothing. */
   intro: string | string[];
@@ -377,7 +378,7 @@ function Banner({
   title: string;
   subtitle?: string;
   onContact: () => void;
-  image: number;
+  image: PhotoSource;
   scrollY: SharedValue<number>;
   twoCol: boolean;
 }) {

@@ -1,5 +1,5 @@
 // Bundled stock photos (Unsplash licence). Bundled locally so they work offline and load instantly.
-import type { HeroSlide, Insight, NewsItem } from './content';
+import type { EventItem, HeroSlide, Insight, NewsItem } from './content';
 
 export const heroImage = require('../../assets/images/hero-city.jpg');
 export const careersImage = require('../../assets/images/careers-team.jpg');
@@ -48,9 +48,15 @@ export const photoChoices: { key: string; label: string; source: number }[] = [
   { key: 'office', label: 'Office', source: require('../../assets/images/office-interior-1.jpg') },
 ];
 
-/** The photo for a photoChoices key, falling back to the Advisory photo. */
-export const photoByKey = (key: string): number =>
-  photoChoices.find((p) => p.key === key)?.source ?? serviceImages.advisory;
+/** A bundled photo, or a photo from a web link (uploaded by an admin or pasted). */
+export type PhotoSource = number | { uri: string };
+
+/** True when a stored image value is a web link rather than a photoChoices key. */
+export const isPhotoLink = (value: string) => /^https?:\/\//i.test(value);
+
+/** The photo for a photoChoices key or a web link, falling back to the Advisory photo. */
+export const photoByKey = (key: string): PhotoSource =>
+  isPhotoLink(key) ? { uri: key } : (photoChoices.find((p) => p.key === key)?.source ?? serviceImages.advisory);
 
 /** Photos for the Insights sections in the menu. */
 export const insightSectionImages: Record<string, number> = {
@@ -119,4 +125,14 @@ const officeInteriors = [
 export function officeImage(city: string, index: number): number {
   if (city === 'London') return require('../../assets/images/office-london.jpg');
   return officeInteriors[index % officeInteriors.length];
+}
+
+export const eventImages: Record<EventItem['format'], number> = {
+  Webinar: require('../../assets/images/event-webinar.jpg'),
+  'In person': require('../../assets/images/event-in-person.jpg'),
+};
+
+/** An event's photo: the admin's uploaded/linked photo, or the default for its format. */
+export function eventImage(item: Pick<EventItem, 'format' | 'image'>): PhotoSource {
+  return item.image ? { uri: item.image } : eventImages[item.format];
 }

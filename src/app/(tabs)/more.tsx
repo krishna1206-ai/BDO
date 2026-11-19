@@ -14,7 +14,8 @@ export default function MoreScreen() {
       <ListRow index={2} icon="shield-half-outline" title="Cyber Risk Check" subtitle="Six questions, instant result" onPress={() => router.push('/cyber-check')} />
       <ListRow index={3} icon="leaf-outline" title="Sustainability" subtitle="Our goals and progress" onPress={() => router.push('/sustainability')} />
 
-      <SectionHeader title="Careers" />
+      <SectionHeader title="Get involved" />
+      <ListRow index={4} icon="calendar-outline" title="Events" subtitle="Webinars and seminars" onPress={() => router.push('/events')} />
       <ListRow index={4} icon="school-outline" title="Careers" subtitle="Graduate and experienced roles" onPress={() => router.push('/careers')} />
 
       <SectionHeader title="About & contact" />

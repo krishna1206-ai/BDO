@@ -4,7 +4,7 @@ import { ActivityIndicator, Text, View } from 'react-native';
 import { ContentPage, type Crumb, type PageSection } from '@/components/page';
 import { styles as ui } from '@/components/ui';
 import { advisers, formatDate, industries, insights, type Insight, type Service } from '@/data/content';
-import { aboutImage, careersImage, industryImages, insightImage } from '@/data/images';
+import { aboutImage, careersImage, industryImages, insightImage, photoByKey, type PhotoSource } from '@/data/images';
 import type { Topic } from '@/data/nav';
 import { useCatalog } from '@/lib/catalog';
 import { colors } from '@/theme';
@@ -23,8 +23,8 @@ const relatedCategories: Record<string, Insight['category'][]> = {
 function parentInfo(
   parent: Topic['parent'],
   services: Service[],
-  serviceImage: (id: string) => number,
-): { crumbs: Crumb[]; title: string; image: number } {
+  serviceImage: (id: string) => PhotoSource,
+): { crumbs: Crumb[]; title: string; image: PhotoSource } {
   if (parent.kind === 'service') {
     const s = services.find((x) => x.id === parent.id);
     const title = s?.title ?? 'Services';
@@ -113,7 +113,7 @@ export default function TopicScreen() {
         crumbs={[{ title: 'Home', href: '/' }, ...parent.crumbs, { title: topic.title }]}
         title={topic.title}
         subtitle={topic.summary}
-        image={parent.image}
+        image={topic.image ? photoByKey(topic.image) : parent.image}
         headline={topic.page?.headline ?? 'Overview'}
         intro={
           topic.page?.intro ??
