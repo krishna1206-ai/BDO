@@ -1,5 +1,5 @@
 // Bundled stock photos (Unsplash licence). Bundled locally so they work offline and load instantly.
-import type { EventItem, HeroSlide, Insight, NewsItem } from './content';
+import type { HeroSlide, Insight, NewsItem } from './content';
 
 export const heroImage = require('../../assets/images/hero-city.jpg');
 export const careersImage = require('../../assets/images/careers-team.jpg');
@@ -13,6 +13,10 @@ export const heroSlideImages: Record<HeroSlide['image'], number> = {
   sustainability: require('../../assets/images/sustainability-solar.jpg'),
   risk: require('../../assets/images/insight-risk.jpg'),
   careers: require('../../assets/images/careers-young-team.jpg'),
+  news: require('../../assets/images/news-city.jpg'),
+  cyber: cyberImage,
+  network: officesBannerImage,
+  deals: require('../../assets/images/service-deals.jpg'),
 };
 
 export const serviceImages: Record<string, number> = {
@@ -103,11 +107,6 @@ export function newsImage(item: NewsItem, index: number): number {
   return list[index % list.length];
 }
 
-export const eventImages: Record<EventItem['format'], number> = {
-  Webinar: require('../../assets/images/event-webinar.jpg'),
-  'In person': require('../../assets/images/event-in-person.jpg'),
-};
-
 const officeInteriors = [
   require('../../assets/images/office-interior-1.jpg'),
   require('../../assets/images/office-interior-2.jpg'),
@@ -120,9 +119,4 @@ const officeInteriors = [
 export function officeImage(city: string, index: number): number {
   if (city === 'London') return require('../../assets/images/office-london.jpg');
   return officeInteriors[index % officeInteriors.length];
-}
-
-/** An event's photo: the admin's uploaded/linked photo, or the default for its format. */
-export function eventImage(item: Pick<EventItem, 'format' | 'image'>): number | { uri: string } {
-  return item.image ? { uri: item.image } : eventImages[item.format];
 }

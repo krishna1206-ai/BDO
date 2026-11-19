@@ -38,7 +38,7 @@ export default function LoginScreen() {
       <ScrollView contentContainerStyle={s.screen} keyboardShouldPersistTaps="handled">
         <Reveal index={0} style={s.card}>
           <Text style={s.title}>Log in</Text>
-          <Text style={s.subtitle}>Access your client portal, saved insights and event bookings.</Text>
+          <Text style={s.subtitle}>Sign in to explore our services, insights and careers.</Text>
 
           {formError ? <FormAlert message={formError} /> : null}
 

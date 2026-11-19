@@ -3,7 +3,7 @@ import { router, usePathname, type Href } from 'expo-router';
 import { useState } from 'react';
 import { Image } from 'expo-image';
 import { Linking, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
-import Animated, { FadeIn, FadeInDown, ReduceMotion, SlideInLeft, SlideInRight, ZoomIn } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeInDown, ReduceMotion, SlideInLeft, SlideInRight } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { PressableScale } from '@/components/ui';
@@ -12,7 +12,6 @@ import { insightImage } from '@/data/images';
 import { featuredLinks, utilityNav, type NavNode } from '@/data/nav';
 import { useAuth } from '@/lib/auth';
 import { useCatalog } from '@/lib/catalog';
-import { useNotifications } from '@/lib/notifications';
 import { colors, spacing } from '@/theme';
 
 /** Desktop-style navbar is used on web when the window is wide enough to fit it. */
@@ -33,34 +32,10 @@ const goSearch = (q: string, replace: boolean) => {
 // Header buttons (phones / narrow windows)
 // ---------------------------------------------------------------------------
 
-/** Bell icon with an animated unread badge; opens the notifications screen. */
-export function NotificationBell({ tint = colors.text, onPress }: { tint?: string; onPress?: () => void }) {
-  const { user } = useAuth();
-  const { unread } = useNotifications();
-  if (!user) return null;
-  return (
-    <Pressable
-      accessibilityLabel={unread ? `Notifications, ${unread} unread` : 'Notifications'}
-      hitSlop={8}
-      style={s.iconBtn}
-      onPress={onPress ?? (() => router.push('/notifications'))}
-    >
-      <Ionicons name={unread ? 'notifications' : 'notifications-outline'} size={22} color={tint} />
-      {unread ? (
-        // Keyed by the count so the badge pops each time a new notification arrives.
-        <Animated.View key={unread} entering={ZoomIn.springify().reduceMotion(ReduceMotion.System)} style={s.badge}>
-          <Text style={s.badgeText}>{unread > 9 ? '9+' : unread}</Text>
-        </Animated.View>
-      ) : null}
-    </Pressable>
-  );
-}
-
 /** Search + hamburger buttons for screen headers. */
 export function HeaderActions({ tint = colors.onPrimary }: { tint?: string }) {
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginRight: Platform.OS === 'web' ? spacing.sm : 0 }}>
-      <NotificationBell tint={tint} />
       <Pressable accessibilityLabel="Search" hitSlop={8} style={s.iconBtn} onPress={() => router.push('/search')}>
         <Ionicons name="search" size={22} color={tint} />
       </Pressable>
@@ -379,7 +354,6 @@ function AccountLink({ onNavigate }: { onNavigate: (href: Href) => void }) {
   }
   return (
     <View style={s.accountLink}>
-      <NotificationBell onPress={() => onNavigate('/notifications')} />
       <Ionicons name="person-circle" size={18} color={colors.primary} />
       <Text style={s.accountText} numberOfLines={1}>
         Hi, {user.name.split(' ')[0]}
@@ -409,21 +383,6 @@ function HoverLink({ label, onPress, style }: { label: string; onPress: () => vo
 
 const s = StyleSheet.create({
   iconBtn: { padding: 6 },
-  badge: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    minWidth: 18,
-    height: 18,
-    paddingHorizontal: 4,
-    borderRadius: 9,
-    backgroundColor: colors.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: colors.surface,
-  },
-  badgeText: { color: colors.onPrimary, fontSize: 10, fontWeight: '800' },
 
   // Mobile menu
   menuRoot: { flex: 1, backgroundColor: colors.surface },

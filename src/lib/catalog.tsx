@@ -1,16 +1,14 @@
 // Content that admins can change from the admin panel, merged with the app's built-in content:
 // - services: built-in ones from src/data plus admin-added ones (supabase/services.sql)
-// - events and job posts: stored in the database (supabase/posts.sql); the built-in lists are only
+// - job posts: stored in the database (supabase/posts.sql); the built-in list is only
 //   used until that table exists.
-// Everything becomes the same Service / Topic / EventItem / Job objects as before, so it renders
+// Everything becomes the same Service / Topic / Job objects as before, so it renders
 // with exactly the same screens and styles.
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import {
-  events as builtInEvents,
   jobs as builtInJobs,
   services as builtInServices,
-  type EventItem,
   type IconName,
   type Job,
   type Service,
@@ -19,13 +17,12 @@ import { photoByKey, serviceImages } from '@/data/images';
 import { mainNav as builtInNav, servicesNav, topics as builtInTopics, type NavNode, type Topic } from '@/data/nav';
 
 import { useAuth } from './auth';
-import { listSiteEvents, listSiteJobs, listSiteServices, type SiteEventRow, type SiteJobRow, type SiteServiceRow } from './db';
+import { listSiteJobs, listSiteServices, type SiteJobRow, type SiteServiceRow } from './db';
 
 type CatalogValue = {
   services: Service[];
   topics: Topic[];
   mainNav: NavNode[];
-  events: EventItem[];
   jobs: Job[];
   /** Admin-added services as stored in the database. */
   custom: SiteServiceRow[];
@@ -58,16 +55,6 @@ const toTopic = (r: SiteServiceRow): Topic => ({
   custom: true,
 });
 
-const toEvent = (r: SiteEventRow): EventItem => ({
-  id: r.id,
-  title: r.title,
-  date: r.date,
-  format: r.format,
-  location: r.location,
-  description: r.description,
-  image: r.image_url || undefined,
-});
-
 const toJob = (r: SiteJobRow): Job => ({
   id: r.id,
   title: r.title,
@@ -81,28 +68,24 @@ const toJob = (r: SiteJobRow): Job => ({
 type Remote = {
   services: SiteServiceRow[];
   /** null = table not set up (or offline): use the built-in list. */
-  events: EventItem[] | null;
   jobs: Job[] | null;
 };
 
 /** Fetches everything; each part falls back on its own if its table isn't set up yet. */
 async function fetchRemote(): Promise<Remote> {
-  const [services, events, jobs] = await Promise.all([
+  const [services, jobs] = await Promise.all([
     listSiteServices().catch(() => [] as SiteServiceRow[]),
-    listSiteEvents()
-      .then((rows) => rows.map(toEvent))
-      .catch(() => null),
     listSiteJobs()
       .then((rows) => rows.map(toJob))
       .catch(() => null),
   ]);
-  return { services, events, jobs };
+  return { services, jobs };
 }
 
 export function CatalogProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const userId = user?.id;
-  const [remote, setRemote] = useState<Remote>({ services: [], events: null, jobs: null });
+  const [remote, setRemote] = useState<Remote>({ services: [], jobs: null });
   const [loaded, setLoaded] = useState(false);
 
   const reload = useCallback(async () => {
@@ -138,7 +121,6 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
       topics,
       mainNav,
       // Until the database answers, show nothing rather than posts an admin may have removed.
-      events: loaded ? (remote.events ?? builtInEvents) : [],
       jobs: loaded ? (remote.jobs ?? builtInJobs) : [],
       custom,
       loaded,

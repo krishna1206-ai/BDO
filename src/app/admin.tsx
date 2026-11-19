@@ -22,8 +22,8 @@ import Animated, { FadeIn, ReduceMotion } from 'react-native-reanimated';
 
 import { EMAIL_RE, FormAlert, FormField, authStyles } from '@/components/form';
 import { styles as ui } from '@/components/ui';
-import { formatDate, type EventItem, type Job } from '@/data/content';
-import { eventImage, photoChoices } from '@/data/images';
+import type { Job } from '@/data/content';
+import { photoChoices } from '@/data/images';
 import { useAuth } from '@/lib/auth';
 import { useCatalog } from '@/lib/catalog';
 import {
@@ -33,15 +33,14 @@ import {
   adminEnquiries,
   adminProfiles,
   adminRecentActivity,
-  adminRegistrations,
+  adminSubscribers,
   changePassword,
   createSiteService,
-  deleteSiteEvent,
   deleteSiteJob,
   deleteSiteService,
   listAdmins,
   removeAdmin,
-  saveSiteEvent,
+  removeSubscriber,
   saveSiteJob,
   setApplicationStatus,
   setEnquiryStatus,
@@ -53,32 +52,30 @@ import {
   type EnquiryRow,
   type EnquiryStatus,
   type ProfileRow,
-  type RegistrationRow,
   type SiteServiceRow,
+  type SubscriberRow,
 } from '@/lib/db';
 import { colors, radius, spacing } from '@/theme';
 
 type Tab =
   | 'overview'
   | 'services'
-  | 'event-posts'
   | 'job-posts'
   | 'users'
   | 'enquiries'
   | 'applications'
-  | 'events'
+  | 'subscribers'
   | 'admins'
   | 'account';
 
 const TABS: { id: Tab; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { id: 'overview', label: 'Overview', icon: 'speedometer-outline' },
   { id: 'services', label: 'Services', icon: 'grid-outline' },
-  { id: 'event-posts', label: 'Events', icon: 'megaphone-outline' },
   { id: 'job-posts', label: 'Jobs', icon: 'document-text-outline' },
   { id: 'users', label: 'Users', icon: 'people-outline' },
   { id: 'enquiries', label: 'Enquiries', icon: 'mail-outline' },
   { id: 'applications', label: 'Applications', icon: 'briefcase-outline' },
-  { id: 'events', label: 'Event sign-ups', icon: 'calendar-outline' },
+  { id: 'subscribers', label: 'Subscribers', icon: 'newspaper-outline' },
   { id: 'admins', label: 'Admins', icon: 'shield-checkmark-outline' },
   { id: 'account', label: 'My account', icon: 'key-outline' },
 ];
@@ -165,12 +162,11 @@ export default function AdminScreen() {
       <View style={{ flex: 1 }}>
         {tab === 'overview' ? <Overview onOpen={setTab} /> : null}
         {tab === 'services' ? <ServicesTab /> : null}
-        {tab === 'event-posts' ? <EventPostsTab /> : null}
         {tab === 'job-posts' ? <JobPostsTab /> : null}
         {tab === 'users' ? <UsersTab /> : null}
         {tab === 'enquiries' ? <EnquiriesTab /> : null}
         {tab === 'applications' ? <ApplicationsTab /> : null}
-        {tab === 'events' ? <EventsTab /> : null}
+        {tab === 'subscribers' ? <SubscribersTab /> : null}
         {tab === 'admins' ? <AdminsTab /> : null}
         {tab === 'account' ? <AccountTab /> : null}
       </View>
@@ -253,7 +249,6 @@ const ACTIVITY_ICONS: Record<ActivityItem['kind'], keyof typeof Ionicons.glyphMa
   user: 'person-add-outline',
   enquiry: 'mail-outline',
   application: 'briefcase-outline',
-  event: 'calendar-outline',
   cyber: 'shield-half-outline',
 };
 
@@ -273,9 +268,7 @@ function Overview({ onOpen }: { onOpen: (t: Tab) => void }) {
     { label: 'Registered users', value: c?.users, tab: 'users', icon: 'people-outline' },
     { label: 'Enquiries', value: c?.enquiries, sub: c ? `${c.newEnquiries} new` : undefined, tab: 'enquiries', icon: 'mail-outline' },
     { label: 'Job applications', value: c?.applications, sub: c ? `${c.newApplications} to review` : undefined, tab: 'applications', icon: 'briefcase-outline' },
-    { label: 'Event sign-ups', value: c?.registrations, tab: 'events', icon: 'calendar-outline' },
     { label: 'Cyber Risk Checks', value: c?.cyberChecks, icon: 'shield-half-outline' },
-    { label: 'Saved articles', value: c?.savedInsights, icon: 'bookmark-outline' },
     { label: 'Admins', value: c?.admins, tab: 'admins', icon: 'shield-checkmark-outline' },
   ];
   return (
@@ -695,11 +688,8 @@ function ServicesTab() {
 }
 
 // ---------------------------------------------------------------------------
-// Events and job posts: add, edit, remove, with an uploaded or linked photo
+// Job posts: add, edit, remove, with an uploaded or linked photo
 // ---------------------------------------------------------------------------
-
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const isRealDate = (v: string) => DATE_RE.test(v) && !Number.isNaN(new Date(`${v}T00:00:00Z`).getTime()) && new Date(`${v}T00:00:00Z`).toISOString().startsWith(v);
 
 /** Photo for a post: upload from the device, paste a link, or leave empty for the default photo. */
 function ImageField({ value, onChange, fallback }: { value: string; onChange: (url: string) => void; fallback?: number }) {
@@ -837,144 +827,6 @@ function PostActions({ confirming, onEdit, onAskRemove, onRemove, onCancel }: {
         <Text style={[s.statusText, { color: '#B42318' }]}>Remove</Text>
       </Pressable>
     </View>
-  );
-}
-
-const EVENT_FORMATS = ['Webinar', 'In person'] as const;
-type EventForm = { id: string | null; title: string; date: string; format: EventItem['format']; location: string; description: string; image: string };
-const emptyEvent = (): EventForm => ({ id: null, title: '', date: '', format: 'Webinar', location: 'Online', description: '', image: '' });
-
-function EventPostsTab() {
-  const { events, reload } = useCatalog();
-  const [form, setForm] = useState<EventForm>(emptyEvent);
-  const [message, setMessage] = useState<{ tone: 'error' | 'success'; text: string } | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [confirmId, setConfirmId] = useState<string | null>(null);
-  const scroller = useRef<ComponentRef<typeof ScrollView>>(null);
-  const set = <K extends keyof EventForm>(k: K, v: EventForm[K]) => setForm((f) => ({ ...f, [k]: v }));
-  const today = new Date().toISOString().slice(0, 10);
-
-  const edit = (e: EventItem) => {
-    setMessage(null);
-    setForm({ id: e.id, title: e.title, date: e.date, format: e.format, location: e.location, description: e.description, image: e.image ?? '' });
-    scroller.current?.scrollTo({ y: 0, animated: true });
-  };
-
-  const save = async () => {
-    if (busy) return;
-    const title = form.title.trim();
-    const date = form.date.trim();
-    if (!title) return setMessage({ tone: 'error', text: 'Enter the event title.' });
-    if (!isRealDate(date)) return setMessage({ tone: 'error', text: 'Enter the date as YYYY-MM-DD, for example 2026-12-15.' });
-    if (!form.location.trim()) return setMessage({ tone: 'error', text: 'Enter where it takes place (or "Online").' });
-    setBusy(true);
-    setMessage(null);
-    try {
-      await saveSiteEvent({
-        id: form.id ?? undefined,
-        title,
-        date,
-        format: form.format,
-        location: form.location.trim(),
-        description: form.description.trim(),
-        image_url: form.image || null,
-      });
-      await reload();
-      setMessage({ tone: 'success', text: `"${title}" ${form.id ? 'saved' : 'added'}. It is live on the Events page now.` });
-      setForm(emptyEvent());
-    } catch (e) {
-      setMessage({ tone: 'error', text: e instanceof Error ? e.message : 'Could not save the event.' });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const remove = async (e: EventItem) => {
-    setConfirmId(null);
-    setMessage(null);
-    try {
-      await deleteSiteEvent(e.id);
-      if (form.id === e.id) setForm(emptyEvent());
-      await reload();
-      setMessage({ tone: 'success', text: `"${e.title}" removed. Its past sign-ups stay in Event sign-ups.` });
-    } catch (err) {
-      setMessage({ tone: 'error', text: err instanceof Error ? err.message : 'Could not remove the event.' });
-    }
-  };
-
-  return (
-    <ScrollView ref={scroller} contentContainerStyle={s.pad} keyboardShouldPersistTaps="handled">
-      <Text style={s.tabTitle}>Events</Text>
-      <Text style={[s.rowMeta, { marginTop: 4 }]}>Add, change or remove the events shown on the Events page and the home page.</Text>
-
-      <View style={[s.row, { marginTop: spacing.md, maxWidth: 760 }]}>
-        <Text style={s.rowTitle}>{form.id ? `Edit "${form.title || 'event'}"` : 'Add an event'}</Text>
-        <FormField label="Title" value={form.title} onChangeText={(v) => set('title', v)} placeholder="e.g. Budget briefing 2027" />
-        <FormField
-          label="Date (YYYY-MM-DD)"
-          value={form.date}
-          onChangeText={(v) => set('date', v)}
-          placeholder={`e.g. ${today}`}
-          autoCapitalize="none"
-          maxLength={10}
-        />
-        <Text style={s.fieldLabel}>Type</Text>
-        <Choices
-          value={form.format}
-          options={EVENT_FORMATS}
-          onChange={(v) => setForm((f) => ({ ...f, format: v, location: v === 'Webinar' && !f.location.trim() ? 'Online' : f.location }))}
-        />
-        <FormField label="Location" value={form.location} onChangeText={(v) => set('location', v)} placeholder="Online, or a city" />
-        <FormField
-          label="Description"
-          value={form.description}
-          onChangeText={(v) => set('description', v)}
-          multiline
-          style={s.multiline}
-          placeholder="What the event covers and who it is for."
-        />
-        <ImageField value={form.image} onChange={(v) => set('image', v)} fallback={eventImage({ format: form.format }) as number} />
-
-        {message ? <FormAlert tone={message.tone} message={message.text} /> : null}
-        <View style={[s.toolbarRow, { marginTop: spacing.md, flexWrap: 'wrap' }]}>
-          <Pressable onPress={save} disabled={busy} style={[s.addBtn, busy && { opacity: 0.7 }]}>
-            <Ionicons name={form.id ? 'save-outline' : 'add'} size={18} color={colors.onPrimary} />
-            <Text style={{ color: colors.onPrimary, fontWeight: '700' }}>{busy ? 'Saving…' : form.id ? 'Save changes' : 'Add event'}</Text>
-          </Pressable>
-          {form.id || form.title ? (
-            <Pressable onPress={() => setForm(emptyEvent())} style={s.exportBtn}>
-              <Text style={s.exportText}>{form.id ? 'Cancel' : 'Clear'}</Text>
-            </Pressable>
-          ) : null}
-        </View>
-      </View>
-
-      <Text style={[s.tabTitle, { fontSize: 18, marginTop: spacing.xl, marginBottom: spacing.sm }]}>
-        All events <Text style={s.count}>({events.length})</Text>
-      </Text>
-      {events.length === 0 ? <Text style={s.empty}>No events yet.</Text> : null}
-      {[...events]
-        .sort((a, b) => a.date.localeCompare(b.date))
-        .map((e) => (
-          <View key={e.id} style={[s.row, s.postRow]}>
-            <Image source={eventImage(e)} style={s.postThumb} contentFit="cover" />
-            <View style={{ flex: 1, minWidth: 180 }}>
-              <Text style={s.rowTitle}>{e.title}</Text>
-              <Text style={s.rowMeta}>
-                {formatDate(e.date)} · {e.format} · {e.location}
-                {e.date < today ? <Text style={{ color: '#B42318' }}>  (past)</Text> : null}
-              </Text>
-            </View>
-            <PostActions
-              confirming={confirmId === e.id}
-              onEdit={() => edit(e)}
-              onAskRemove={() => setConfirmId(e.id)}
-              onRemove={() => remove(e)}
-              onCancel={() => setConfirmId(null)}
-            />
-          </View>
-        ))}
-    </ScrollView>
   );
 }
 
@@ -1372,8 +1224,6 @@ function EnquiriesTab() {
     try {
       await setEnquiryStatus(row.id, status);
       setData((prev) => prev?.map((r) => (r.id === row.id ? { ...r, status } : r)) ?? prev);
-      // Replying opens the conversation with the person who sent the enquiry.
-      if (status === 'replied') router.push(`/chat/${row.id}`);
     } catch (e) {
       setRowError(e instanceof Error ? e.message : 'Could not update status.');
     }
@@ -1407,10 +1257,6 @@ function EnquiriesTab() {
           <Text style={s.rowBody}>{item.message}</Text>
           <Text style={s.rowDate}>{when(item.created_at)}</Text>
           <StatusPicker value={item.status} options={ENQUIRY_STATUSES} onChange={(st) => change(item, st)} />
-          <Pressable onPress={() => router.push(`/chat/${item.id}`)} style={[s.exportBtn, { alignSelf: 'flex-start', marginTop: spacing.sm }]}>
-            <Ionicons name="chatbubbles-outline" size={16} color={colors.primary} />
-            <Text style={s.exportText}>Chat</Text>
-          </Pressable>
         </View>
       )}
     />
@@ -1470,30 +1316,61 @@ function ApplicationsTab() {
   );
 }
 
-function EventsTab() {
-  const { data, error, refreshing, refresh } = useLoad(adminRegistrations);
+/** Newsletter sign-ups from the footer Subscribe form. */
+function SubscribersTab() {
+  const { data, setData, error, refreshing, refresh } = useLoad(adminSubscribers);
   const [q, setQ] = useState('');
-  const rows = useMemo(() => (data ?? []).filter((r) => matches(q, r.event_title, r.full_name, r.email)), [data, q]);
+  const [rowError, setRowError] = useState('');
+  const [confirmId, setConfirmId] = useState<number | null>(null);
+  const rows = useMemo(() => (data ?? []).filter((r) => matches(q, r.email)), [data, q]);
+
+  const remove = async (row: SubscriberRow) => {
+    setConfirmId(null);
+    setRowError('');
+    try {
+      await removeSubscriber(row.id);
+      setData((prev) => prev?.filter((r) => r.id !== row.id) ?? prev);
+    } catch (e) {
+      setRowError(e instanceof Error ? e.message : 'Could not remove subscriber.');
+    }
+  };
+
   return (
-    <FlatList<RegistrationRow>
+    <FlatList<SubscriberRow>
       data={rows}
       keyExtractor={(r) => String(r.id)}
       contentContainerStyle={s.pad}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}
       ListHeaderComponent={
         <>
-          <Toolbar title="Event sign-ups" count={rows.length} query={q} onQuery={setQ} onExport={() => exportCsv('event-signups.csv', rows)} />
-          <State error={error} loading={!data} />
+          <Toolbar title="Subscribers" count={rows.length} query={q} onQuery={setQ} onExport={() => exportCsv('subscribers.csv', rows)} />
+          <State error={error || rowError} loading={!data} />
         </>
       }
-      ListEmptyComponent={data ? <Text style={s.empty}>No event sign-ups yet.</Text> : undefined}
+      ListEmptyComponent={data ? <Text style={s.empty}>No subscribers yet.</Text> : undefined}
       renderItem={({ item }) => (
-        <View style={s.row}>
-          <Text style={s.rowTitle}>{item.event_title}</Text>
-          <Text style={s.rowMeta}>
-            {item.full_name || '(no name)'} · {item.email}
-          </Text>
-          <Text style={s.rowDate}>{when(item.created_at)}</Text>
+        <View style={[s.row, s.postRow]}>
+          <Ionicons name="mail-open-outline" size={18} color={colors.primary} />
+          <View style={{ flex: 1, minWidth: 180 }}>
+            <Pressable onPress={() => Linking.openURL(`mailto:${item.email}`)}>
+              <Text style={[s.rowTitle, { color: colors.primaryLink }]}>{item.email}</Text>
+            </Pressable>
+            <Text style={s.rowDate}>Subscribed {when(item.created_at)}</Text>
+          </View>
+          {confirmId === item.id ? (
+            <View style={s.rowActions}>
+              <Pressable onPress={() => remove(item)} style={[s.status, { borderColor: '#B42318', backgroundColor: '#B42318' }]}>
+                <Text style={[s.statusText, { color: colors.onPrimary }]}>Yes, remove</Text>
+              </Pressable>
+              <Pressable onPress={() => setConfirmId(null)} style={[s.status, { borderColor: colors.border }]}>
+                <Text style={[s.statusText, { color: colors.text }]}>Cancel</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <Pressable onPress={() => setConfirmId(item.id)} style={[s.status, { borderColor: '#B42318' }]}>
+              <Text style={[s.statusText, { color: '#B42318' }]}>Remove</Text>
+            </Pressable>
+          )}
         </View>
       )}
     />
@@ -1643,7 +1520,7 @@ const s = StyleSheet.create({
   },
   subTitle: { fontSize: 15, color: colors.text },
   rowActions: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  // Events / Jobs tabs
+  // Jobs tab
   imageRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md, marginTop: spacing.sm, alignItems: 'flex-start' },
   imagePreview: { width: 160, height: 100, borderRadius: radius.sm, overflow: 'hidden', backgroundColor: '#E8EEF6' },
   imageBusy: { backgroundColor: 'rgba(0,0,0,0.35)', alignItems: 'center', justifyContent: 'center' },

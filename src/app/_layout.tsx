@@ -5,7 +5,6 @@ import { ActivityIndicator, View } from 'react-native';
 import { DesktopNav, HeaderActions, useIsWide } from '@/components/nav';
 import { AuthProvider, useAuth } from '@/lib/auth';
 import { CatalogProvider } from '@/lib/catalog';
-import { NotificationsProvider } from '@/lib/notifications';
 import { colors } from '@/theme';
 
 const headerRight = () => <HeaderActions />;
@@ -14,9 +13,7 @@ export default function RootLayout() {
   return (
     <AuthProvider>
       <CatalogProvider>
-        <NotificationsProvider>
-          <AppNavigator />
-        </NotificationsProvider>
+        <AppNavigator />
       </CatalogProvider>
     </AuthProvider>
   );
@@ -69,7 +66,6 @@ function AppNavigator() {
           <Stack.Screen name="insight/[id]" options={{ title: 'Insight' }} />
           <Stack.Screen name="topic/[id]" options={{ title: '' }} />
           <Stack.Screen name="insights-section/[id]" options={{ title: 'Insights' }} />
-          <Stack.Screen name="events" options={{ title: 'Events' }} />
           <Stack.Screen name="careers" options={{ title: 'Careers' }} />
           <Stack.Screen name="apply/[id]" options={{ title: 'Apply', animation: 'slide_from_bottom' }} />
           <Stack.Screen name="contact" options={{ title: 'Contact us', animation: 'slide_from_bottom' }} />
@@ -84,9 +80,6 @@ function AppNavigator() {
           <Stack.Screen name="legal" options={{ title: 'Legal & privacy' }} />
           <Stack.Screen name="fraud-alert" options={{ title: 'Fraud alert' }} />
           <Stack.Screen name="sitemap" options={{ title: 'Sitemap' }} />
-          <Stack.Screen name="notifications" options={{ title: 'Notifications', headerRight: undefined }} />
-          <Stack.Screen name="my-enquiries" options={{ title: 'My enquiries' }} />
-          <Stack.Screen name="chat/[id]" options={{ title: 'Chat', headerRight: undefined }} />
         </Stack.Protected>
 
         {/* Always reachable: shows its own admin sign-in when signed out, the panel for admins. */}

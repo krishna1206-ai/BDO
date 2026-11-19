@@ -1088,8 +1088,6 @@ export const featuredLinks: { id: string; title: string; href: Href }[] = [
 
 export const utilityNav: { title: string; href: Href }[] = [
   { title: "Locations", href: "/offices" },
-  { title: "Our People", href: "/advisers" },
-  { title: "Events", href: "/events" },
-  { title: "News", href: "/news" },
   { title: "Careers", href: "/careers" },
+  { title: "News", href: "/news" },
 ];

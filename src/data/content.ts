@@ -51,7 +51,7 @@ export type HeroSlide = {
   text: string;
   cta: string;
   href: string;
-  image: 'hero' | 'sustainability' | 'risk' | 'careers';
+  image: 'hero' | 'sustainability' | 'risk' | 'careers' | 'news' | 'cyber' | 'network' | 'deals';
 };
 
 export type Stat = { value: number; suffix?: string; label: string };
@@ -66,17 +66,6 @@ export type Adviser = {
   office: string;
   email: string;
   phone: string;
-};
-
-export type EventItem = {
-  id: string;
-  title: string;
-  date: string;
-  format: 'Webinar' | 'In person';
-  /** Photo link (uploaded by an admin or pasted); without it the format's default photo is used. */
-  image?: string;
-  location: string;
-  description: string;
 };
 
 export type Job = {
@@ -497,6 +486,15 @@ export const news: NewsItem[] = [
 
 export const heroSlides: HeroSlide[] = [
   {
+    id: 'managing-partner',
+    eyebrow: 'NEWS',
+    title: 'Helen Carter becomes our Managing Partner.',
+    text: 'A new chapter for Northbridge as we invest in our people, technology and clients.',
+    cta: 'Read the news',
+    href: '/news/new-managing-partner',
+    image: 'news',
+  },
+  {
     id: 'growth',
     eyebrow: 'NORTHBRIDGE ADVISORY',
     title: 'Advice that helps your business grow.',
@@ -506,7 +504,7 @@ export const heroSlides: HeroSlide[] = [
     image: 'hero',
   },
   {
-    id: 'sustainability',
+    id: 'sustainability-survey',
     eyebrow: 'NEW RESEARCH',
     title: 'From ambition to action.',
     text: 'Our Sustainability Survey 2026 shows how leaders are turning pledges into progress.',
@@ -531,6 +529,42 @@ export const heroSlides: HeroSlide[] = [
     cta: 'See open roles',
     href: '/careers',
     image: 'careers',
+  },
+  {
+    id: 'cyber-check',
+    eyebrow: 'TOOL',
+    title: 'How cyber-resilient is your business?',
+    text: 'Answer six quick questions and get an instant view of where you stand.',
+    cta: 'Start the Cyber Risk Check',
+    href: '/cyber-check',
+    image: 'cyber',
+  },
+  {
+    id: 'deal-rankings',
+    eyebrow: 'NEWS',
+    title: 'A top-five mid-market deal adviser.',
+    text: 'Our deal advisory team has been ranked among the most active in the market.',
+    cta: 'Read the news',
+    href: '/news/deal-rankings-2025',
+    image: 'deals',
+  },
+  {
+    id: 'network',
+    eyebrow: 'OUR OFFICES',
+    title: 'Local teams across the UK.',
+    text: 'Find the Northbridge office nearest to you and meet the people who work there.',
+    cta: 'Find an office',
+    href: '/offices',
+    image: 'network',
+  },
+  {
+    id: 'sustainability',
+    eyebrow: 'SUSTAINABILITY',
+    title: 'Sustainability at Northbridge.',
+    text: 'Our commitments, our progress, and how we help clients act.',
+    cta: 'See our approach',
+    href: '/sustainability',
+    image: 'sustainability',
   },
 ];
 
@@ -577,15 +611,6 @@ export const advisers: Adviser[] = [
   { id: '8', name: 'Ravi Patel', role: 'Partner', speciality: 'Advisory', office: 'London', email: 'ravi.patel@example.com', phone: '+44 20 0000 0008' },
   { id: '9', name: 'Fiona Grant', role: 'Director', speciality: `${BRAND} Digital`, office: 'Edinburgh', email: 'fiona.grant@example.com', phone: '+44 131 000 0009' },
   { id: '10', name: 'Owen Hughes', role: 'Senior Manager', speciality: 'International Desk', office: 'Cardiff', email: 'owen.hughes@example.com', phone: '+44 29 0000 0010' },
-];
-
-export const events: EventItem[] = [
-  { id: 'e1', title: 'Autumn Budget briefing', date: '2026-11-12', format: 'Webinar', location: 'Online', description: 'Our tax partners walk through the Budget and answer your questions live.' },
-  { id: 'e2', title: 'Selling your business: getting deal-ready', date: '2026-11-26', format: 'In person', location: 'Manchester', description: 'A practical session for owners considering an exit in the next three years.' },
-  { id: 'e3', title: 'Cyber risk for boards', date: '2026-12-03', format: 'Webinar', location: 'Online', description: 'How directors can oversee cyber risk effectively.' },
-  { id: 'e4', title: 'Year-end reporting update', date: '2026-12-10', format: 'In person', location: 'London', description: 'Key accounting changes finance teams need to know before year end.' },
-  { id: 'e5', title: 'Net zero for mid-sized businesses', date: '2027-01-14', format: 'Webinar', location: 'Online', description: 'A practical first step guide to measuring and cutting your carbon footprint.' },
-  { id: 'e6', title: 'Scaling AI in your finance team', date: '2027-01-28', format: 'In person', location: 'Edinburgh', description: 'Hear from finance leaders who have moved AI from pilot to everyday use.' },
 ];
 
 export const jobs: Job[] = [

@@ -18,7 +18,6 @@ const groups: { title: string; links: { icon: IconName; title: string; href: Hre
     links: [
       { icon: 'newspaper-outline', title: 'Insights & reports', href: '/insights' },
       { icon: 'megaphone-outline', title: 'News', href: '/news' },
-      { icon: 'calendar-outline', title: 'Events', href: '/events' },
     ],
   },
   {

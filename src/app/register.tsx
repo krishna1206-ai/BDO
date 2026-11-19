@@ -57,7 +57,7 @@ export default function RegisterScreen() {
       <ScrollView contentContainerStyle={s.screen} keyboardShouldPersistTaps="handled">
         <Reveal index={0} style={s.card}>
           <Text style={s.title}>Create an account</Text>
-          <Text style={s.subtitle}>Register to save insights, book events and contact your adviser.</Text>
+          <Text style={s.subtitle}>Register to explore our insights and contact your adviser.</Text>
 
           {formError ? <FormAlert message={formError} /> : null}
           {notice ? <FormAlert message={notice} tone="success" /> : null}

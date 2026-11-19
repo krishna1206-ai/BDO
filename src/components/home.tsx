@@ -2,7 +2,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
 import { router, useIsFocused, type Href } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { FlatList, Linking, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, FlatList, Linking, Pressable, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import Animated, {
   Extrapolation,
   interpolate,
@@ -18,10 +18,12 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { scheduleOnRN } from 'react-native-worklets';
 
+import { EMAIL_RE } from '@/components/form';
 import { HeaderActions, useIsWide } from '@/components/nav';
 import { Card, PressableScale, PrimaryButton, Reveal, Tag } from '@/components/ui';
 import { formatDate, offices, type HeroSlide, type Industry, type Insight, type Stat } from '@/data/content';
 import { heroSlideImages, industryImages, insightImage, officesBannerImage } from '@/data/images';
+import { subscribeToNewsletter } from '@/lib/db';
 import { colors, radius, spacing } from '@/theme';
 
 const AUTO_ADVANCE_MS = 5500;
@@ -265,7 +267,8 @@ export function StatsBand({ stats, scrollY }: { stats: Stat[]; scrollY: SharedVa
 
 const REPORT_WIDTH = 260;
 
-export function ReportsRail({ reports }: { reports: Insight[] }) {
+/** Horizontal carousel of insight cards (newest first). */
+export function InsightsRail({ reports }: { reports: Insight[] }) {
   return (
     <FlatList
       data={reports}
@@ -348,11 +351,65 @@ const footerLinks: { label: string; href: Href }[] = [
   { label: 'Sitemap', href: '/sitemap' },
 ];
 
+/** Newsletter sign-up; saves to public.newsletter_subscribers (supabase/newsletter.sql). */
+function SubscribeForm() {
+  const [email, setEmail] = useState('');
+  const [state, setState] = useState<{ tone: 'error' | 'success'; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    if (busy) return;
+    if (!EMAIL_RE.test(email.trim())) {
+      setState({ tone: 'error', text: 'Enter a valid email address.' });
+      return;
+    }
+    setBusy(true);
+    setState(null);
+    try {
+      await subscribeToNewsletter(email);
+      setState({ tone: 'success', text: 'Thank you. You are subscribed to our updates.' });
+      setEmail('');
+    } catch (e) {
+      setState({ tone: 'error', text: e instanceof Error ? e.message : 'Could not subscribe. Please try again.' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <View style={s.subscribe}>
+      <Text style={s.subscribeTitle}>Subscribe to our insights</Text>
+      <Text style={s.subscribeText}>The latest thinking on tax, audit and business, straight to your inbox.</Text>
+      <View style={s.subscribeRow}>
+        <TextInput
+          value={email}
+          onChangeText={setEmail}
+          placeholder="Your email address"
+          placeholderTextColor="#8FA0B8"
+          keyboardType="email-address"
+          autoCapitalize="none"
+          autoComplete="email"
+          onSubmitEditing={submit}
+          style={s.subscribeInput}
+          accessibilityLabel="Email address for newsletter"
+        />
+        <Pressable onPress={submit} disabled={busy} style={({ hovered }) => [s.subscribeBtn, (hovered || busy) && { opacity: 0.85 }]}>
+          {busy ? <ActivityIndicator color={colors.onPrimary} /> : <Text style={s.subscribeBtnText}>SUBSCRIBE</Text>}
+        </Pressable>
+      </View>
+      {state ? (
+        <Text style={[s.subscribeMsg, { color: state.tone === 'success' ? '#7EE2A8' : '#FFB4A8' }]}>{state.text}</Text>
+      ) : null}
+    </View>
+  );
+}
+
 export function Footer() {
   return (
     <View style={s.footer}>
       <Text style={s.footerBrand}>NORTHBRIDGE ADVISORY</Text>
       <Text style={s.footerTagline}>Clear advice. Real progress.</Text>
+      <SubscribeForm />
       <View style={s.footerLinks}>
         {footerLinks.map((link) => (
           <Pressable key={link.label} onPress={() => router.push(link.href)} style={s.footerLink} hitSlop={4}>
@@ -468,4 +525,29 @@ const s = StyleSheet.create({
     justifyContent: 'center',
   },
   copyright: { color: '#8FA0B8', fontSize: 12, marginTop: spacing.lg },
+
+  subscribe: { marginTop: spacing.lg, paddingVertical: spacing.md, borderTopWidth: 1, borderBottomWidth: 1, borderColor: 'rgba(255,255,255,0.15)' },
+  subscribeTitle: { color: colors.onPrimary, fontSize: 17, fontWeight: '800' },
+  subscribeText: { color: '#C9D4E3', fontSize: 14, lineHeight: 20, marginTop: 4 },
+  subscribeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.md, maxWidth: 520 },
+  subscribeInput: {
+    flexGrow: 1,
+    flexBasis: 200,
+    minHeight: 44,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.sm,
+    backgroundColor: colors.surface,
+    color: colors.text,
+    fontSize: 15,
+  },
+  subscribeBtn: {
+    minHeight: 44,
+    paddingHorizontal: spacing.lg,
+    borderRadius: radius.sm,
+    backgroundColor: colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  subscribeBtnText: { color: colors.onPrimary, fontWeight: '800', letterSpacing: 1 },
+  subscribeMsg: { marginTop: spacing.sm, fontSize: 14, fontWeight: '600' },
 });
