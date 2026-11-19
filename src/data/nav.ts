@@ -10,6 +10,8 @@ export type Topic = {
   points: string[];
   /** Which top-level page this topic belongs to (used for its photo and breadcrumb). */
   parent: { kind: "service" | "industry" | "about"; id: string };
+  /** Overview paragraphs for template pages (used by services added from the admin panel). */
+  overview?: string[];
   /** Optional long-form page content; pages without it use a template built from summary and points. */
   page?: {
     headline: string;
@@ -1000,26 +1002,33 @@ export const insightSections: {
   },
 ];
 
-/** Mirrors the client website's header: Services (two levels + featured), Insights and About (one level each). */
-export const mainNav: NavNode[] = [
-  {
+/** The Services menu: each service with its sub-pages (in list order). Services without sub-pages open directly. */
+export function servicesNav(
+  serviceList: { id: string; title: string }[],
+  topicList: Topic[],
+): NavNode {
+  return {
     id: "services",
     title: "Services",
     href: "/services",
-    // Each service lists its sub-pages in the same order as the client website's menu.
-    children: services.map((s) => ({
-      id: s.id,
-      title: s.title,
-      href: `/service/${s.id}` as Href,
-      children: topics
-        .filter((x) => x.parent.kind === "service" && x.parent.id === s.id)
-        .map((x) => ({
-          id: x.id,
-          title: x.title,
-          href: `/topic/${x.id}` as Href,
-        })),
-    })),
-  },
+    children: serviceList.map((s) => {
+      const subs = topicList.filter((x) => x.parent.kind === "service" && x.parent.id === s.id);
+      return {
+        id: s.id,
+        title: s.title,
+        href: `/service/${s.id}` as Href,
+        children: subs.length
+          ? subs.map((x) => ({ id: x.id, title: x.title, href: `/topic/${x.id}` as Href }))
+          : undefined,
+      };
+    }),
+  };
+}
+
+/** Mirrors the client website's header: Services (two levels + featured), Insights and About (one level each). */
+export const mainNav: NavNode[] = [
+  // Built-in services only; the app adds admin-created ones at runtime (see src/lib/catalog.tsx).
+  servicesNav(services, topics),
   {
     id: "insights",
     title: "Insights",

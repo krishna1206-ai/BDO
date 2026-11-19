@@ -1,6 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { Image } from 'expo-image';
 import { router } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentRef } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -20,7 +21,9 @@ import Animated, { FadeIn, ReduceMotion } from 'react-native-reanimated';
 
 import { EMAIL_RE, FormAlert, FormField, authStyles } from '@/components/form';
 import { styles as ui } from '@/components/ui';
+import { photoChoices } from '@/data/images';
 import { useAuth } from '@/lib/auth';
+import { useCatalog } from '@/lib/catalog';
 import {
   addAdmin,
   adminApplications,
@@ -30,10 +33,13 @@ import {
   adminRecentActivity,
   adminRegistrations,
   changePassword,
+  createSiteService,
+  deleteSiteService,
   listAdmins,
   removeAdmin,
   setApplicationStatus,
   setEnquiryStatus,
+  updateSiteService,
   type ActivityItem,
   type ApplicationRow,
   type ApplicationStatus,
@@ -41,13 +47,15 @@ import {
   type EnquiryStatus,
   type ProfileRow,
   type RegistrationRow,
+  type SiteServiceRow,
 } from '@/lib/db';
 import { colors, radius, spacing } from '@/theme';
 
-type Tab = 'overview' | 'users' | 'enquiries' | 'applications' | 'events' | 'admins' | 'account';
+type Tab = 'overview' | 'services' | 'users' | 'enquiries' | 'applications' | 'events' | 'admins' | 'account';
 
 const TABS: { id: Tab; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { id: 'overview', label: 'Overview', icon: 'speedometer-outline' },
+  { id: 'services', label: 'Services', icon: 'grid-outline' },
   { id: 'users', label: 'Users', icon: 'people-outline' },
   { id: 'enquiries', label: 'Enquiries', icon: 'mail-outline' },
   { id: 'applications', label: 'Applications', icon: 'briefcase-outline' },
@@ -137,6 +145,7 @@ export default function AdminScreen() {
 
       <View style={{ flex: 1 }}>
         {tab === 'overview' ? <Overview onOpen={setTab} /> : null}
+        {tab === 'services' ? <ServicesTab /> : null}
         {tab === 'users' ? <UsersTab /> : null}
         {tab === 'enquiries' ? <EnquiriesTab /> : null}
         {tab === 'applications' ? <ApplicationsTab /> : null}
@@ -296,6 +305,370 @@ function Overview({ onOpen }: { onOpen: (t: Tab) => void }) {
           <Text style={s.rowDate}>{when(a.at)}</Text>
         </View>
       ))}
+    </ScrollView>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Services: add main services, or sub-services under an existing main service
+// ---------------------------------------------------------------------------
+
+/** Icons an admin can pick for a main service (shown on the Services page card). */
+const SERVICE_ICONS: (keyof typeof Ionicons.glyphMap)[] = [
+  'briefcase-outline',
+  'shield-checkmark-outline',
+  'calculator-outline',
+  'trending-up-outline',
+  'hardware-chip-outline',
+  'globe-outline',
+  'people-outline',
+  'document-text-outline',
+  'cash-outline',
+  'business-outline',
+  'leaf-outline',
+  'analytics-outline',
+  'scale-outline',
+  'construct-outline',
+];
+
+type ServiceForm = {
+  /** Set when editing an existing admin-added service. */
+  editingId: string | null;
+  kind: 'main' | 'sub';
+  parentId: string;
+  title: string;
+  summary: string;
+  description: string;
+  icon: string;
+  image: string;
+  points: string;
+  overview: string;
+};
+
+const emptyForm = (parentId = ''): ServiceForm => ({
+  editingId: null,
+  kind: parentId ? 'sub' : 'main',
+  parentId,
+  title: '',
+  summary: '',
+  description: '',
+  icon: SERVICE_ICONS[0],
+  image: photoChoices[2].key,
+  points: '',
+  overview: '',
+});
+
+const slugify = (text: string) =>
+  text
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60) || 'service';
+
+/** One item per line, blank lines dropped. */
+const lines = (text: string) =>
+  text
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+/** Paragraphs are separated by a blank line. */
+const paragraphs = (text: string) =>
+  text
+    .split(/\n\s*\n/)
+    .map((p) => p.replace(/\s*\n\s*/g, ' ').trim())
+    .filter(Boolean);
+
+function ServicesTab() {
+  const { services, topics, custom, reload } = useCatalog();
+  const [form, setForm] = useState<ServiceForm>(() => emptyForm());
+  const [message, setMessage] = useState<{ tone: 'error' | 'success'; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [confirmId, setConfirmId] = useState<string | null>(null);
+  const scroller = useRef<ComponentRef<typeof ScrollView>>(null);
+
+  const customById = useMemo(() => new Map(custom.map((r) => [r.id, r])), [custom]);
+  const set = <K extends keyof ServiceForm>(key: K, value: ServiceForm[K]) => setForm((f) => ({ ...f, [key]: value }));
+
+  /** A web address that no other service or page uses yet. */
+  const uniqueId = (title: string) => {
+    const taken = new Set([...services.map((x) => x.id), ...topics.map((x) => x.id), ...custom.map((x) => x.id)]);
+    const base = slugify(title);
+    let id = base;
+    for (let n = 2; taken.has(id); n++) id = `${base}-${n}`;
+    return id;
+  };
+
+  const startEdit = (row: SiteServiceRow) => {
+    setMessage(null);
+    setForm({
+      editingId: row.id,
+      kind: row.parent_id ? 'sub' : 'main',
+      parentId: row.parent_id ?? '',
+      title: row.title,
+      summary: row.summary,
+      description: row.description,
+      icon: row.icon,
+      image: row.image,
+      points: row.points.join('\n'),
+      overview: row.overview.join('\n\n'),
+    });
+    scroller.current?.scrollTo({ y: 0, animated: true });
+  };
+
+  const startAddUnder = (parentId: string) => {
+    setMessage(null);
+    setForm(emptyForm(parentId));
+    scroller.current?.scrollTo({ y: 0, animated: true });
+  };
+
+  const save = async () => {
+    if (busy) return;
+    const title = form.title.trim();
+    if (!title) return setMessage({ tone: 'error', text: 'Enter a name for the service.' });
+    if (form.kind === 'sub' && !form.parentId) return setMessage({ tone: 'error', text: 'Choose which main service it goes under.' });
+    if (!form.summary.trim()) return setMessage({ tone: 'error', text: 'Add a short summary (one sentence).' });
+
+    const isMain = form.kind === 'main';
+    const row = {
+      id: form.editingId ?? uniqueId(title),
+      parent_id: isMain ? null : form.parentId,
+      title,
+      summary: form.summary.trim(),
+      description: isMain ? form.description.trim() : '',
+      icon: form.icon,
+      image: form.image,
+      points: lines(form.points),
+      overview: isMain ? [] : paragraphs(form.overview),
+    };
+    setBusy(true);
+    setMessage(null);
+    try {
+      if (form.editingId) await updateSiteService(row);
+      else await createSiteService(row);
+      await reload();
+      const where = isMain ? 'as a main service' : `under ${services.find((x) => x.id === row.parent_id)?.title ?? 'its main service'}`;
+      setMessage({ tone: 'success', text: `"${title}" ${form.editingId ? 'saved' : `added ${where}`}. It is live in the menu now.` });
+      setForm(emptyForm());
+    } catch (e) {
+      setMessage({ tone: 'error', text: e instanceof Error ? e.message : 'Could not save the service.' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (row: SiteServiceRow) => {
+    setConfirmId(null);
+    setMessage(null);
+    try {
+      await deleteSiteService(row.id);
+      if (form.editingId === row.id) setForm(emptyForm());
+      await reload();
+      setMessage({ tone: 'success', text: `"${row.title}" removed.` });
+    } catch (e) {
+      setMessage({ tone: 'error', text: e instanceof Error ? e.message : 'Could not remove the service.' });
+    }
+  };
+
+  /** Edit / remove buttons for admin-added rows; built-in rows are part of the app's code. */
+  const actions = (id: string) => {
+    const row = customById.get(id);
+    if (!row) return <Text style={s.badge}>Built-in</Text>;
+    if (confirmId === id) {
+      return (
+        <View style={s.rowActions}>
+          <Text style={[s.rowMeta, { fontSize: 13 }]}>{row.parent_id ? 'Remove?' : 'Remove with its sub-services?'}</Text>
+          <Pressable onPress={() => remove(row)} style={[s.status, { borderColor: '#B42318', backgroundColor: '#B42318' }]}>
+            <Text style={[s.statusText, { color: colors.onPrimary }]}>Yes, remove</Text>
+          </Pressable>
+          <Pressable onPress={() => setConfirmId(null)} style={[s.status, { borderColor: colors.border }]}>
+            <Text style={[s.statusText, { color: colors.text }]}>Cancel</Text>
+          </Pressable>
+        </View>
+      );
+    }
+    return (
+      <View style={s.rowActions}>
+        <Pressable onPress={() => startEdit(row)} style={[s.status, { borderColor: colors.primary }]}>
+          <Text style={[s.statusText, { color: colors.primary }]}>Edit</Text>
+        </Pressable>
+        <Pressable onPress={() => setConfirmId(id)} style={[s.status, { borderColor: '#B42318' }]}>
+          <Text style={[s.statusText, { color: '#B42318' }]}>Remove</Text>
+        </Pressable>
+      </View>
+    );
+  };
+
+  const isMain = form.kind === 'main';
+  const parentTitle = services.find((x) => x.id === form.parentId)?.title;
+
+  return (
+    <ScrollView ref={scroller} contentContainerStyle={s.pad} keyboardShouldPersistTaps="handled">
+      <Text style={s.tabTitle}>Services</Text>
+      <Text style={[s.rowMeta, { marginTop: 4 }]}>
+        Add a new main service (like Tax), or place a new service under an existing main service. New services use the same page design as
+        the existing ones and appear in the menu, the Services page and search straight away.
+      </Text>
+
+      {/* Add / edit form */}
+      <View style={[s.row, { marginTop: spacing.md, maxWidth: 760 }]}>
+        <Text style={s.rowTitle}>{form.editingId ? `Edit "${form.title || 'service'}"` : 'Add a service'}</Text>
+
+        <Text style={s.fieldLabel}>What are you adding?</Text>
+        <View style={s.statusRow}>
+          {(
+            [
+              { id: 'sub', label: 'Service under an existing main service' },
+              { id: 'main', label: 'New main service' },
+            ] as const
+          ).map((o) => {
+            const on = form.kind === o.id;
+            return (
+              <Pressable
+                key={o.id}
+                disabled={!!form.editingId}
+                onPress={() => set('kind', o.id)}
+                style={[s.choice, on && s.choiceOn, form.editingId && !on && { opacity: 0.4 }]}
+              >
+                <Ionicons name={on ? 'radio-button-on' : 'radio-button-off'} size={16} color={on ? colors.onPrimary : colors.primary} />
+                <Text style={[s.choiceText, on && { color: colors.onPrimary }]}>{o.label}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        {!isMain ? (
+          <>
+            <Text style={s.fieldLabel}>Place it under</Text>
+            <View style={s.statusRow}>
+              {services.map((m) => {
+                const on = form.parentId === m.id;
+                return (
+                  <Pressable key={m.id} onPress={() => set('parentId', m.id)} style={[s.choice, on && s.choiceOn]}>
+                    <Text style={[s.choiceText, on && { color: colors.onPrimary }]}>{m.title}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </>
+        ) : null}
+
+        <FormField
+          label={isMain ? 'Main service name' : 'Service name'}
+          value={form.title}
+          onChangeText={(v) => set('title', v)}
+          placeholder={isMain ? 'e.g. Legal Services' : 'e.g. GST Advisory'}
+        />
+        <FormField
+          label="Short summary (one sentence)"
+          value={form.summary}
+          onChangeText={(v) => set('summary', v)}
+          placeholder="Shown under the title on cards, search results and the page."
+        />
+
+        {isMain ? (
+          <>
+            <FormField
+              label="Introduction paragraph"
+              value={form.description}
+              onChangeText={(v) => set('description', v)}
+              multiline
+              style={s.multiline}
+              placeholder="A few sentences about this service, shown at the top of its page."
+            />
+            <Text style={s.fieldLabel}>Icon</Text>
+            <View style={s.statusRow}>
+              {SERVICE_ICONS.map((name) => {
+                const on = form.icon === name;
+                return (
+                  <Pressable key={name} onPress={() => set('icon', name)} style={[s.iconChoice, on && s.choiceOn]} accessibilityLabel={name}>
+                    <Ionicons name={name} size={20} color={on ? colors.onPrimary : colors.primary} />
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Text style={s.fieldLabel}>Photo (sub-services use their main service&apos;s photo)</Text>
+            <View style={s.photoGrid}>
+              {photoChoices.map((p) => {
+                const on = form.image === p.key;
+                return (
+                  <Pressable key={p.key} onPress={() => set('image', p.key)} style={[s.photo, on && s.photoOn]}>
+                    <Image source={p.source} style={s.photoImg} contentFit="cover" />
+                    <Text style={[s.photoLabel, on && { color: colors.primaryLink }]} numberOfLines={1}>
+                      {p.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </>
+        ) : (
+          <FormField
+            label="Overview (optional, leave a blank line between paragraphs)"
+            value={form.overview}
+            onChangeText={(v) => set('overview', v)}
+            multiline
+            style={s.multiline}
+            placeholder="Paragraphs shown in the Overview section of the page."
+          />
+        )}
+
+        <FormField
+          label="How we help (one point per line)"
+          value={form.points}
+          onChangeText={(v) => set('points', v)}
+          multiline
+          style={s.multiline}
+          placeholder={'Tax returns and filings\nAdvice on new rules\nSupport with audits'}
+        />
+
+        {message ? <FormAlert tone={message.tone} message={message.text} /> : null}
+
+        <View style={[s.toolbarRow, { marginTop: spacing.md, flexWrap: 'wrap' }]}>
+          <Pressable onPress={save} disabled={busy} style={[s.addBtn, busy && { opacity: 0.7 }]}>
+            <Ionicons name={form.editingId ? 'save-outline' : 'add'} size={18} color={colors.onPrimary} />
+            <Text style={{ color: colors.onPrimary, fontWeight: '700' }}>
+              {busy ? 'Saving…' : form.editingId ? 'Save changes' : isMain ? 'Add main service' : parentTitle ? `Add under ${parentTitle}` : 'Add service'}
+            </Text>
+          </Pressable>
+          {form.editingId || form.title ? (
+            <Pressable onPress={() => setForm(emptyForm())} style={s.exportBtn}>
+              <Text style={s.exportText}>{form.editingId ? 'Cancel' : 'Clear'}</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      </View>
+
+      {/* Current services, in menu order */}
+      <Text style={[s.tabTitle, { fontSize: 18, marginTop: spacing.xl, marginBottom: spacing.sm }]}>All services</Text>
+      {services.map((m) => {
+        const subs = topics.filter((t) => t.parent.kind === 'service' && t.parent.id === m.id);
+        return (
+          <View key={m.id} style={s.row}>
+            <View style={s.serviceHead}>
+              <Ionicons name={m.icon} size={20} color={colors.primary} />
+              <Pressable onPress={() => router.push(`/service/${m.id}`)} style={{ flex: 1 }}>
+                <Text style={s.rowTitle}>{m.title}</Text>
+              </Pressable>
+              {actions(m.id)}
+            </View>
+            {subs.map((t) => (
+              <View key={t.id} style={s.subRow}>
+                <Ionicons name="return-down-forward-outline" size={16} color={colors.textMuted} />
+                <Pressable onPress={() => router.push(`/topic/${t.id}`)} style={{ flex: 1 }}>
+                  <Text style={s.subTitle}>{t.title}</Text>
+                </Pressable>
+                {actions(t.id)}
+              </View>
+            ))}
+            <Pressable onPress={() => startAddUnder(m.id)} style={[s.subRow, { borderTopWidth: subs.length ? 1 : 0 }]} hitSlop={4}>
+              <Ionicons name="add-circle-outline" size={16} color={colors.primaryLink} />
+              <Text style={[s.subTitle, { color: colors.primaryLink, fontWeight: '700' }]}>Add a service under {m.title}</Text>
+            </Pressable>
+          </View>
+        );
+      })}
     </ScrollView>
   );
 }
@@ -794,4 +1167,48 @@ const s = StyleSheet.create({
     borderRadius: radius.sm,
     backgroundColor: colors.primary,
   },
+
+  // Services tab
+  fieldLabel: { fontWeight: '600', color: colors.text, marginTop: spacing.md },
+  choice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.primary,
+  },
+  choiceOn: { backgroundColor: colors.primary, borderColor: colors.primary },
+  choiceText: { fontSize: 14, fontWeight: '600', color: colors.primary },
+  iconChoice: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  multiline: { minHeight: 96, textAlignVertical: 'top' },
+  photoGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.sm },
+  photo: { width: 104, borderWidth: 2, borderColor: 'transparent', borderRadius: radius.sm, padding: 2 },
+  photoOn: { borderColor: colors.primaryLink },
+  photoImg: { width: '100%', height: 64, borderRadius: radius.sm - 2 },
+  photoLabel: { fontSize: 12, fontWeight: '600', color: colors.textMuted, marginTop: 4, textAlign: 'center' },
+  serviceHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' },
+  subRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    flexWrap: 'wrap',
+    paddingVertical: 8,
+    paddingLeft: spacing.lg,
+    borderTopWidth: 1,
+    borderColor: colors.border,
+  },
+  subTitle: { fontSize: 15, color: colors.text },
+  rowActions: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  badge: { fontSize: 12, fontWeight: '700', color: colors.textMuted, paddingHorizontal: 8, paddingVertical: 3, backgroundColor: '#EEF2F7', borderRadius: radius.lg },
 });

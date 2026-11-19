@@ -24,6 +24,30 @@ export const serviceImages: Record<string, number> = {
   'international-desk': require('../../assets/images/about-globe.jpg'),
 };
 
+/** Photos an admin can pick for a service they add (stored by key in public.site_services.image). */
+export const photoChoices: { key: string; label: string; source: number }[] = [
+  { key: 'assurance', label: 'Audit', source: serviceImages.assurance },
+  { key: 'tax', label: 'Tax', source: serviceImages.tax },
+  { key: 'advisory', label: 'Advisory', source: serviceImages.advisory },
+  { key: 'managed-services', label: 'Outsourcing', source: serviceImages['managed-services'] },
+  { key: 'digital', label: 'Cyber', source: serviceImages.digital },
+  { key: 'deals', label: 'Deals', source: require('../../assets/images/service-deals.jpg') },
+  { key: 'esg', label: 'ESG', source: require('../../assets/images/service-esg.jpg') },
+  { key: 'globe', label: 'Global', source: aboutImage },
+  { key: 'city', label: 'City', source: heroImage },
+  { key: 'skyline', label: 'Skyline', source: officesBannerImage },
+  { key: 'team', label: 'Team', source: careersImage },
+  { key: 'growth', label: 'Growth', source: require('../../assets/images/insight-growth.jpg') },
+  { key: 'charts', label: 'Charts', source: require('../../assets/images/news-charts.jpg') },
+  { key: 'digital-data', label: 'Data', source: require('../../assets/images/insight-digital.jpg') },
+  { key: 'sustainability', label: 'Sustainability', source: require('../../assets/images/sustainability-solar.jpg') },
+  { key: 'office', label: 'Office', source: require('../../assets/images/office-interior-1.jpg') },
+];
+
+/** The photo for a photoChoices key, falling back to the Advisory photo. */
+export const photoByKey = (key: string): number =>
+  photoChoices.find((p) => p.key === key)?.source ?? serviceImages.advisory;
+
 /** Photos for the Insights sections in the menu. */
 export const insightSectionImages: Record<string, number> = {
   alerts: require('../../assets/images/news-laptop.jpg'),

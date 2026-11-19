@@ -16,6 +16,7 @@ function fail(message: string): never {
       notifications: 'notifications.sql',
       admins: 'admin.sql',
       enquiry_messages: 'chat.sql',
+      site_services: 'services.sql',
     };
     const file = (table && files[table]) || 'schema.sql';
     throw new Error(
@@ -348,6 +349,53 @@ export function subscribeToNotifications(userId: string, onInsert: (row: Notific
   return () => {
     sb.removeChannel(channel);
   };
+}
+
+// ----- site_services (admin-managed services, see supabase/services.sql) -----
+
+export type SiteServiceRow = {
+  id: string;
+  /** null = main service; otherwise the id of the main service it sits under. */
+  parent_id: string | null;
+  title: string;
+  summary: string;
+  description: string;
+  icon: string;
+  image: string;
+  points: string[];
+  overview: string[];
+  created_at: string;
+};
+
+export type SiteServiceInput = Omit<SiteServiceRow, 'created_at'>;
+
+const SERVICE_COLUMNS = 'id, parent_id, title, summary, description, icon, image, points, overview, created_at';
+
+/** Every admin-added service, oldest first (so new ones appear at the end of the menu). */
+export async function listSiteServices(): Promise<SiteServiceRow[]> {
+  const { data, error } = await client().from('site_services').select(SERVICE_COLUMNS).order('created_at', { ascending: true }).limit(500);
+  if (error) fail(error.message);
+  return (data ?? []) as SiteServiceRow[];
+}
+
+export async function createSiteService(input: SiteServiceInput) {
+  const { error } = await client().from('site_services').insert(input);
+  if (error?.code === '23505') throw new Error('A service with this web address already exists. Change the title slightly.');
+  if (error) fail(error.message);
+}
+
+export async function updateSiteService(input: SiteServiceInput) {
+  const { id, ...fields } = input;
+  const { error, count } = await client().from('site_services').update(fields, { count: 'exact' }).eq('id', id);
+  if (error) fail(error.message);
+  if (count === 0) throw new Error('Could not save: only admins can change services.');
+}
+
+/** Removes a service; removing a main service also removes the sub-services under it. */
+export async function deleteSiteService(id: string) {
+  const { error, count } = await client().from('site_services').delete({ count: 'exact' }).or(`id.eq.${id},parent_id.eq.${id}`);
+  if (error) fail(error.message);
+  if (count === 0) throw new Error('Could not remove: only admins can change services.');
 }
 
 // ----- saved_insights --------------------------------------------------------

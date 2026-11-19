@@ -4,13 +4,13 @@ import { Text, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 
 import { Card, CardImage, ScrollRevealProvider, styles as ui, useReplayKey, useScrollTracker } from '@/components/ui';
-import { services } from '@/data/content';
-import { serviceImages } from '@/data/images';
+import { useCatalog } from '@/lib/catalog';
 import { colors, spacing } from '@/theme';
 
 export default function ServicesScreen() {
   const replayKey = useReplayKey();
   const { scrollY, onScroll } = useScrollTracker();
+  const { services, serviceImage } = useCatalog();
 
   return (
     <ScrollRevealProvider value={scrollY}>
@@ -32,7 +32,7 @@ export default function ServicesScreen() {
             style={{ marginBottom: spacing.md, overflow: 'hidden' }}
             onPress={() => router.push(`/service/${item.id}`)}
           >
-            <CardImage source={serviceImages[item.id]} height={150} />
+            <CardImage source={serviceImage(item.id)} height={150} />
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
               <Ionicons name={item.icon} size={22} color={colors.primary} />
               <Text style={{ flex: 1, fontSize: 17, fontWeight: '700', color: colors.text }}>{item.title}</Text>

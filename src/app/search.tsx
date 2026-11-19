@@ -4,15 +4,14 @@ import { useMemo, useState } from 'react';
 import { FlatList, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Card, styles as ui } from '@/components/ui';
-import { industries, insights, news, offices, services } from '@/data/content';
-import { topics } from '@/data/nav';
+import { industries, insights, news, offices } from '@/data/content';
+import { useCatalog } from '@/lib/catalog';
 import { colors, spacing } from '@/theme';
 
 type Result = { key: string; kind: string; title: string; text: string; href: Href };
 
-const index: Result[] = [
-  ...services.map((s) => ({ key: `s-${s.id}`, kind: 'Service', title: s.title, text: s.summary, href: `/service/${s.id}` as Href })),
-  ...topics.map((x) => ({ key: `t-${x.id}`, kind: 'Page', title: x.title, text: x.summary, href: `/topic/${x.id}` as Href })),
+/** Everything except services, which come from the catalog (built-in + admin-added). */
+const otherResults: Result[] = [
   ...industries.map((i) => ({ key: `i-${i.id}`, kind: 'Industry', title: i.title, text: i.summary, href: `/industry/${i.id}` as Href })),
   ...insights.map((i) => ({
     key: `in-${i.id}`,
@@ -28,6 +27,16 @@ const index: Result[] = [
 export default function SearchScreen() {
   const params = useLocalSearchParams<{ q?: string }>();
   const [query, setQuery] = useState(params.q ?? '');
+  const { services, topics } = useCatalog();
+
+  const index = useMemo<Result[]>(
+    () => [
+      ...services.map((s) => ({ key: `s-${s.id}`, kind: 'Service', title: s.title, text: s.summary, href: `/service/${s.id}` as Href })),
+      ...topics.map((x) => ({ key: `t-${x.id}`, kind: 'Page', title: x.title, text: x.summary, href: `/topic/${x.id}` as Href })),
+      ...otherResults,
+    ],
+    [services, topics],
+  );
 
   const results = useMemo(() => {
     const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -43,7 +52,7 @@ export default function SearchScreen() {
       .filter((x): x is { r: Result; score: number } => x !== null)
       .sort((a, b) => b.score - a.score)
       .map((x) => x.r);
-  }, [query]);
+  }, [query, index]);
 
   return (
     <FlatList

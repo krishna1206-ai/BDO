@@ -1,11 +1,13 @@
 import { Stack, useLocalSearchParams, type Href } from 'expo-router';
-import { Text, View } from 'react-native';
+import { ActivityIndicator, Text, View } from 'react-native';
 
 import { ContentPage, type Crumb, type PageSection } from '@/components/page';
 import { styles as ui } from '@/components/ui';
-import { advisers, formatDate, industries, insights, services, type Insight } from '@/data/content';
-import { aboutImage, careersImage, industryImages, insightImage, serviceImages } from '@/data/images';
-import { topicById, type Topic } from '@/data/nav';
+import { advisers, formatDate, industries, insights, type Insight, type Service } from '@/data/content';
+import { aboutImage, careersImage, industryImages, insightImage } from '@/data/images';
+import type { Topic } from '@/data/nav';
+import { useCatalog } from '@/lib/catalog';
+import { colors } from '@/theme';
 
 /** Which insight categories to show as related articles for each parent section. */
 const relatedCategories: Record<string, Insight['category'][]> = {
@@ -18,13 +20,17 @@ const relatedCategories: Record<string, Insight['category'][]> = {
 };
 
 /** Breadcrumb trail and photo for the section a topic sits under. */
-function parentInfo(parent: Topic['parent']): { crumbs: Crumb[]; title: string; image: number } {
+function parentInfo(
+  parent: Topic['parent'],
+  services: Service[],
+  serviceImage: (id: string) => number,
+): { crumbs: Crumb[]; title: string; image: number } {
   if (parent.kind === 'service') {
     const s = services.find((x) => x.id === parent.id);
     const title = s?.title ?? 'Services';
     return {
       title,
-      image: serviceImages[parent.id],
+      image: serviceImage(parent.id),
       crumbs: [{ title: 'Services', href: '/services' }, { title, href: `/service/${parent.id}` as Href }],
     };
   }
@@ -57,7 +63,17 @@ function templateSections(topic: Topic, parentTitle: string): PageSection[] {
 
 export default function TopicScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { services, topicById, serviceImage, loaded } = useCatalog();
   const topic = topicById(id);
+
+  // Admin-added services arrive a moment after start-up.
+  if (!topic && !loaded) {
+    return (
+      <View style={[ui.screen, { flex: 1, alignItems: 'center', justifyContent: 'center' }]}>
+        <ActivityIndicator color={colors.primary} />
+      </View>
+    );
+  }
 
   if (!topic) {
     return (
@@ -67,7 +83,7 @@ export default function TopicScreen() {
     );
   }
 
-  const parent = parentInfo(topic.parent);
+  const parent = parentInfo(topic.parent, services, serviceImage);
   // Side panel lists this page's own services; each row opens the contact form for that service.
   const offerings = topic.points.map((p) => ({
     title: p,
@@ -78,9 +94,10 @@ export default function TopicScreen() {
   const leader = advisers.find((a) => a.speciality === parent.title);
 
   // Related insights: articles in the categories that fit this service, newest first.
-  const categories = relatedCategories[topic.parent.id] ?? [];
+  // Admin-added services have no mapping, so they show the latest articles from every category.
+  const categories = relatedCategories[topic.parent.id];
   const related = insights
-    .filter((i) => categories.includes(i.category))
+    .filter((i) => !categories || categories.includes(i.category))
     .sort((a, b) => b.date.localeCompare(a.date))
     .slice(0, 3)
     .map((i) => ({ id: i.id, title: i.title, category: i.category, date: formatDate(i.date), image: insightImage(i) }));
@@ -97,6 +114,7 @@ export default function TopicScreen() {
         headline={topic.page?.headline ?? 'Overview'}
         intro={
           topic.page?.intro ??
+          topic.overview ??
           `${topic.summary} Our ${parent.title} specialists work alongside your team to deliver support that is practical, proportionate and built around your business.`
         }
         sections={topic.page?.sections ?? templateSections(topic, parent.title)}

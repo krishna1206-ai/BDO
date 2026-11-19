@@ -9,8 +9,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { PressableScale } from '@/components/ui';
 import { insights } from '@/data/content';
 import { insightImage } from '@/data/images';
-import { featuredLinks, mainNav, utilityNav, type NavNode } from '@/data/nav';
+import { featuredLinks, utilityNav, type NavNode } from '@/data/nav';
 import { useAuth } from '@/lib/auth';
+import { useCatalog } from '@/lib/catalog';
 import { useNotifications } from '@/lib/notifications';
 import { colors, spacing } from '@/theme';
 
@@ -75,6 +76,7 @@ export function HeaderActions({ tint = colors.onPrimary }: { tint?: string }) {
 // ---------------------------------------------------------------------------
 
 export function MobileMenu() {
+  const { mainNav } = useCatalog();
   const [path, setPath] = useState<NavNode[]>([]);
   const [direction, setDirection] = useState<'in' | 'out'>('in');
   const [query, setQuery] = useState('');
@@ -178,6 +180,7 @@ export function MobileMenu() {
 // ---------------------------------------------------------------------------
 
 export function DesktopNav() {
+  const { mainNav } = useCatalog();
   const pathname = usePathname();
   const [openId, setOpenId] = useState<string | null>(null);
   const [activeChildId, setActiveChildId] = useState<string | null>(null);

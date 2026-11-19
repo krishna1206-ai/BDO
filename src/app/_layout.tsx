@@ -4,6 +4,7 @@ import { ActivityIndicator, View } from 'react-native';
 
 import { DesktopNav, HeaderActions, useIsWide } from '@/components/nav';
 import { AuthProvider, useAuth } from '@/lib/auth';
+import { CatalogProvider } from '@/lib/catalog';
 import { NotificationsProvider } from '@/lib/notifications';
 import { colors } from '@/theme';
 
@@ -12,9 +13,11 @@ const headerRight = () => <HeaderActions />;
 export default function RootLayout() {
   return (
     <AuthProvider>
-      <NotificationsProvider>
-        <AppNavigator />
-      </NotificationsProvider>
+      <CatalogProvider>
+        <NotificationsProvider>
+          <AppNavigator />
+        </NotificationsProvider>
+      </CatalogProvider>
     </AuthProvider>
   );
 }

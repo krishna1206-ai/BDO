@@ -1,16 +1,25 @@
 import { Stack, useLocalSearchParams, type Href } from 'expo-router';
-import { StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
 import { ContentPage } from '@/components/page';
 import { Reveal, styles as ui } from '@/components/ui';
-import { advisers, services } from '@/data/content';
-import { serviceImages } from '@/data/images';
-import { topics } from '@/data/nav';
+import { advisers } from '@/data/content';
+import { useCatalog } from '@/lib/catalog';
 import { colors, spacing } from '@/theme';
 
 export default function ServiceDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { services, topics, serviceImage, loaded } = useCatalog();
   const service = services.find((s) => s.id === id);
+
+  // Admin-added services arrive a moment after start-up.
+  if (!service && !loaded) {
+    return (
+      <View style={[ui.screen, { flex: 1, alignItems: 'center', justifyContent: 'center' }]}>
+        <ActivityIndicator color={colors.primary} />
+      </View>
+    );
+  }
 
   if (!service) {
     return (
@@ -30,11 +39,11 @@ export default function ServiceDetail() {
         key={service.id}
         crumbs={[{ title: 'Home', href: '/' }, { title: 'Services', href: '/services' }, { title: service.title }]}
         title={service.title}
-        image={serviceImages[service.id]}
+        image={serviceImage(service.id)}
         headline={service.summary}
         intro={service.description}
         sections={[
-          { title: 'How we can help', bullets: service.offerings },
+          ...(service.offerings.length ? [{ title: 'How we can help', bullets: service.offerings }] : []),
           ...(subTopics.length
             ? [
                 {
