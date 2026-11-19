@@ -82,3 +82,11 @@ alter table public.site_services add column if not exists leader jsonb
 -- Photos can also be an uploaded or pasted web link (added later; safe to re-run).
 alter table public.site_services drop constraint if exists site_services_image_check;
 alter table public.site_services add constraint site_services_image_check check (length(image) <= 1000);
+
+-- Pages and links in the Insights and About menus (added later; safe to re-run).
+-- section: which menu the row belongs to. link: an outside web address the menu item opens
+-- instead of a page.
+alter table public.site_services add column if not exists section text not null default 'service';
+alter table public.site_services drop constraint if exists site_services_section_check;
+alter table public.site_services add constraint site_services_section_check check (section in ('service', 'insights', 'about'));
+alter table public.site_services add column if not exists link text check (link is null or link ~ '^https?://');

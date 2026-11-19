@@ -255,10 +255,16 @@ export type SiteServiceRow = {
   hidden: boolean;
   /** "Meet our leader" contact; null = the default contact. */
   leader: Leader | null;
+  /** Which menu the row belongs to: a service (default), or a page / link in the Insights or About menu. */
+  section: MenuSection;
+  /** Insights / About items: an outside web address the menu item opens instead of a page. */
+  link: string | null;
   created_at: string;
 };
 
-export type SiteServiceInput = Omit<SiteServiceRow, 'created_at'>;
+export type MenuSection = 'service' | 'insights' | 'about';
+
+export type SiteServiceInput = Omit<SiteServiceRow, 'created_at' | 'section' | 'link'> & { section?: MenuSection; link?: string | null };
 
 const SERVICE_COLUMNS = 'id, parent_id, title, summary, description, icon, image, points, overview, created_at';
 
@@ -268,11 +274,14 @@ export async function listSiteServices(): Promise<SiteServiceRow[]> {
     const { data, error } = await client().from('site_services').select(columns).order('created_at', { ascending: true }).limit(500);
     return { rows: (data ?? []) as unknown as Partial<SiteServiceRow>[], error };
   };
-  let { rows, error } = await load(`${SERVICE_COLUMNS}, hidden, leader`);
+  let { rows, error } = await load(`${SERVICE_COLUMNS}, hidden, leader, section, link`);
   // Before the newer columns are added (re-run supabase/services.sql), still show admin-added services.
+  if (error?.code === '42703') ({ rows, error } = await load(`${SERVICE_COLUMNS}, hidden, leader`));
   if (error?.code === '42703') ({ rows, error } = await load(SERVICE_COLUMNS));
   if (error) fail(error.message);
-  return rows.map((r) => ({ ...r, hidden: r.hidden ?? false, leader: r.leader ?? null }) as SiteServiceRow);
+  return rows.map(
+    (r) => ({ ...r, hidden: r.hidden ?? false, leader: r.leader ?? null, section: r.section ?? 'service', link: r.link ?? null }) as SiteServiceRow,
+  );
 }
 
 /** Creates or replaces the row with this id (used to edit or remove built-in services). */
@@ -291,10 +300,12 @@ export async function resetSiteService(id: string) {
 }
 
 /** Leaves out the newer columns when they are unused, so saving works before they exist in the database. */
-const withoutHidden = ({ hidden, leader, ...rest }: SiteServiceInput) => ({
+const withoutHidden = ({ hidden, leader, section, link, ...rest }: SiteServiceInput) => ({
   ...rest,
   ...(hidden ? { hidden } : {}),
   ...(leader ? { leader } : {}),
+  ...(section && section !== 'service' ? { section } : {}),
+  ...(link ? { link } : {}),
 });
 
 export async function createSiteService(input: SiteServiceInput) {
@@ -308,7 +319,8 @@ export async function updateSiteService(input: SiteServiceInput) {
   // Always send the leader so clearing it in the form removes it.
   const { error, count } = await client()
     .from('site_services')
-    .update({ ...fields, leader: input.leader }, { count: 'exact' })
+    // Menu pages always send their link, so clearing it turns the item back into a page.
+    .update({ ...fields, leader: input.leader, ...(input.section && input.section !== 'service' ? { link: input.link ?? null } : {}) }, { count: 'exact' })
     .eq('id', id);
   if (error?.code === '42703' || error?.code === 'PGRST204') {
     throw new Error('The leader field needs a database update. Run supabase/services.sql again in the Supabase SQL Editor.');

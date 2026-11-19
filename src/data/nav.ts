@@ -9,7 +9,7 @@ export type Topic = {
   summary: string;
   points: string[];
   /** Which top-level page this topic belongs to (used for its photo and breadcrumb). */
-  parent: { kind: "service" | "industry" | "about"; id: string };
+  parent: { kind: "service" | "industry" | "about" | "insights"; id: string };
   /** Overview paragraphs for template pages (used by services added from the admin panel). */
   overview?: string[];
   /** Own photo set by an admin (photoChoices key or web link); otherwise the main service's photo. */

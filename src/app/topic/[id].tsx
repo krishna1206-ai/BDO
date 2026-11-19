@@ -9,6 +9,9 @@ import type { Topic } from '@/data/nav';
 import { useCatalog } from '@/lib/catalog';
 import { colors } from '@/theme';
 
+/** Banner photo for pages in the Insights menu. */
+const insightsImage = photoByKey('charts');
+
 /** Which insight categories to show as related articles for each parent section. */
 const relatedCategories: Record<string, Insight['category'][]> = {
   assurance: ['Audit', 'Risk'],
@@ -42,6 +45,9 @@ function parentInfo(
       image: industryImages[parent.id],
       crumbs: [{ title: 'Industries', href: '/industries' }, { title, href: `/industry/${parent.id}` as Href }],
     };
+  }
+  if (parent.kind === 'insights') {
+    return { title: 'Insights', image: insightsImage, crumbs: [{ title: 'Insights', href: '/insights' }] };
   }
   return { title: 'About', image: aboutImage, crumbs: [{ title: 'About', href: '/about' }] };
 }
@@ -127,12 +133,13 @@ export default function TopicScreen() {
           topic.page?.sections ??
           (topic.custom
             ? topic.points.length
-              ? [{ title: 'How we help', bullets: topic.points }]
+              ? [{ title: topic.parent.kind === 'service' ? 'How we help' : 'Key points', bullets: topic.points }]
               : []
             : templateSections(topic, parent.title))
         }
         sideTitle={`Our ${topic.title}`}
-        sideLinks={offerings}
+        // Added Insights / About pages list their key points in the page instead of a services box.
+        sideLinks={topic.custom && topic.parent.kind !== 'service' ? undefined : offerings}
         contactTopic={topic.title}
         featureImage={careersImage}
         related={related}

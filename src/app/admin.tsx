@@ -21,9 +21,11 @@ import {
 import Animated, { FadeIn, ReduceMotion } from 'react-native-reanimated';
 
 import { EMAIL_RE, FormAlert, FormField, authStyles } from '@/components/form';
+import { MapPicker } from '@/components/map-picker';
 import { styles as ui } from '@/components/ui';
 import { formatDate, officeMapUrl, type EventItem, type Job, type Leader, type Office } from '@/data/content';
-import { eventImage, isPhotoLink, officeImage, photoChoices, serviceImages, type PhotoSource } from '@/data/images';
+import { aboutImage, eventImage, isPhotoLink, officeImage, photoByKey, photoChoices, serviceImages, type PhotoSource } from '@/data/images';
+import type { NavNode } from '@/data/nav';
 import { useAuth } from '@/lib/auth';
 import { useCatalog } from '@/lib/catalog';
 import {
@@ -67,6 +69,7 @@ import { colors, radius, spacing } from '@/theme';
 type Tab =
   | 'overview'
   | 'services'
+  | 'menu-pages'
   | 'event-posts'
   | 'job-posts'
   | 'offices'
@@ -81,6 +84,7 @@ type Tab =
 const TABS: { id: Tab; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { id: 'overview', label: 'Overview', icon: 'speedometer-outline' },
   { id: 'services', label: 'Services', icon: 'grid-outline' },
+  { id: 'menu-pages', label: 'Insights & About', icon: 'reader-outline' },
   { id: 'event-posts', label: 'Events', icon: 'megaphone-outline' },
   { id: 'job-posts', label: 'Jobs', icon: 'document-text-outline' },
   { id: 'offices', label: 'Locations', icon: 'location-outline' },
@@ -175,6 +179,7 @@ export default function AdminScreen() {
       <View style={{ flex: 1 }}>
         {tab === 'overview' ? <Overview onOpen={setTab} /> : null}
         {tab === 'services' ? <ServicesTab /> : null}
+        {tab === 'menu-pages' ? <MenuPagesTab /> : null}
         {tab === 'event-posts' ? <EventPostsTab /> : null}
         {tab === 'job-posts' ? <JobPostsTab /> : null}
         {tab === 'offices' ? <OfficesTab /> : null}
@@ -445,7 +450,7 @@ function ServicesTab() {
   const scroller = useRef<ComponentRef<typeof ScrollView>>(null);
 
   const rowById = useMemo(() => new Map(custom.map((r) => [r.id, r])), [custom]);
-  const removedBuiltIns = custom.filter((r) => r.hidden && isBuiltIn(r.id));
+  const removedBuiltIns = custom.filter((r) => r.hidden && isBuiltIn(r.id) && r.section === 'service');
   const set = <K extends keyof ServiceForm>(key: K, value: ServiceForm[K]) => setForm((f) => ({ ...f, [key]: value }));
   const subsOf = (id: string) => topics.filter((t) => t.parent.kind === 'service' && t.parent.id === id);
 
@@ -914,6 +919,388 @@ function ServicesTab() {
 }
 
 // ---------------------------------------------------------------------------
+// Insights and About menus: pages (same design as service pages) or links to other websites
+// ---------------------------------------------------------------------------
+
+type MenuId = 'insights' | 'about';
+const MENUS: { id: MenuId; label: string }[] = [
+  { id: 'insights', label: 'Insights' },
+  { id: 'about', label: 'About' },
+];
+
+type MenuForm = {
+  editingId: string | null;
+  /** Editing an item that ships with the app (saved as an override row). */
+  builtIn: boolean;
+  /** Built-in items without their own content page (Insights sections, outside links): name only. */
+  renameOnly: boolean;
+  menu: MenuId;
+  kind: 'page' | 'link';
+  title: string;
+  summary: string;
+  overview: string;
+  points: string;
+  image: string;
+  link: string;
+};
+
+const emptyMenuForm = (menu: MenuId = 'insights'): MenuForm => ({
+  editingId: null,
+  builtIn: false,
+  renameOnly: false,
+  menu,
+  kind: 'page',
+  title: '',
+  summary: '',
+  overview: '',
+  points: '',
+  image: '',
+  link: '',
+});
+
+const menuDefaultPhoto: Record<MenuId, PhotoSource> = { insights: photoByKey('charts'), about: aboutImage };
+
+function MenuPagesTab() {
+  const { mainNav, topics, custom, reload, isBuiltIn, builtInTitle } = useCatalog();
+  const [form, setForm] = useState<MenuForm>(() => emptyMenuForm());
+  const [message, setMessage] = useState<{ tone: 'error' | 'success'; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [confirmId, setConfirmId] = useState<string | null>(null);
+  const scroller = useRef<ComponentRef<typeof ScrollView>>(null);
+  const set = <K extends keyof MenuForm>(k: K, v: MenuForm[K]) => setForm((f) => ({ ...f, [k]: v }));
+
+  const rowById = useMemo(() => new Map(custom.map((r) => [r.id, r])), [custom]);
+  const itemsOf = (menu: MenuId) => mainNav.find((n) => n.id === menu)?.children ?? [];
+  const removedBuiltIns = custom.filter((r) => r.hidden && isBuiltIn(r.id) && r.section !== 'service');
+  const toTop = () => scroller.current?.scrollTo({ y: 0, animated: true });
+
+  const edit = (menu: MenuId, item: NavNode) => {
+    setMessage(null);
+    const builtIn = isBuiltIn(item.id);
+    const page = topics.find((t) => t.id === item.id);
+    const row = rowById.get(item.id);
+    const intro = page ? (page.overview ?? (page.page ? (Array.isArray(page.page.intro) ? page.page.intro : [page.page.intro]) : [])) : [];
+    setForm({
+      editingId: item.id,
+      builtIn,
+      renameOnly: builtIn && !page,
+      menu,
+      kind: item.external && !builtIn ? 'link' : 'page',
+      title: item.title,
+      summary: page?.summary ?? '',
+      overview: intro.join('\n\n'),
+      points: (page?.points ?? []).join('\n'),
+      image: row?.image ?? '',
+      link: item.external && !builtIn ? item.external : '',
+    });
+    toTop();
+  };
+
+  const save = async () => {
+    if (busy) return;
+    const title = form.title.trim();
+    const link = form.link.trim();
+    if (!title) return setMessage({ tone: 'error', text: 'Enter the name shown in the menu.' });
+    if (form.kind === 'link' && !form.renameOnly && !/^https?:\/\/\S+$/i.test(link)) {
+      return setMessage({ tone: 'error', text: 'Paste the full web address, starting with https://' });
+    }
+    const asPage = form.kind === 'page' && !form.renameOnly;
+    const taken = new Set([...mainNav.flatMap((n) => [n.id, ...(n.children ?? []).map((c) => c.id)]), ...topics.map((t) => t.id), ...custom.map((r) => r.id)]);
+    let id = form.editingId ?? slugify(title);
+    if (!form.editingId) for (let n = 2; taken.has(id); n++) id = `${slugify(title)}-${n}`;
+    const row = {
+      id,
+      parent_id: null,
+      title,
+      summary: asPage ? form.summary.trim() : '',
+      description: '',
+      icon: 'document-text-outline',
+      image: asPage ? form.image : '',
+      points: asPage ? lines(form.points) : [],
+      overview: asPage ? paragraphs(form.overview) : [],
+      hidden: false,
+      leader: null,
+      section: form.menu,
+      link: form.kind === 'link' && !form.renameOnly ? link : null,
+    };
+    setBusy(true);
+    setMessage(null);
+    try {
+      if (form.builtIn) await upsertSiteService(row);
+      else if (form.editingId) await updateSiteService(row);
+      else await createSiteService(row);
+      await reload();
+      const menuLabel = MENUS.find((m) => m.id === form.menu)?.label;
+      setMessage({ tone: 'success', text: `"${title}" ${form.editingId ? 'saved' : `added to the ${menuLabel} menu`}. It is live now.` });
+      setForm(emptyMenuForm(form.menu));
+    } catch (e) {
+      setMessage({ tone: 'error', text: e instanceof Error ? e.message : 'Could not save.' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** Built-in: hidden from the menu (can be restored). Added: deleted. */
+  const remove = async (menu: MenuId, item: NavNode) => {
+    setConfirmId(null);
+    setMessage(null);
+    try {
+      if (isBuiltIn(item.id)) {
+        await upsertSiteService({
+          id: item.id,
+          parent_id: null,
+          title: item.title,
+          summary: '',
+          description: '',
+          icon: 'document-text-outline',
+          image: '',
+          points: [],
+          overview: [],
+          hidden: true,
+          leader: null,
+          section: menu,
+          link: null,
+        });
+      } else {
+        await deleteSiteService(item.id);
+      }
+      if (form.editingId === item.id) setForm(emptyMenuForm(menu));
+      await reload();
+      setMessage({
+        tone: 'success',
+        text: isBuiltIn(item.id) ? `"${item.title}" removed from the menu. You can restore it at the bottom of this page.` : `"${item.title}" removed.`,
+      });
+    } catch (e) {
+      setMessage({ tone: 'error', text: e instanceof Error ? e.message : 'Could not remove.' });
+    }
+  };
+
+  const reset = async (id: string, restored: boolean) => {
+    setMessage(null);
+    try {
+      await resetSiteService(id);
+      if (form.editingId === id) setForm(emptyMenuForm(form.menu));
+      await reload();
+      setMessage({ tone: 'success', text: `"${builtInTitle(id) ?? id}" ${restored ? 'is back in the menu' : 'is back to its original text'}.` });
+    } catch (e) {
+      setMessage({ tone: 'error', text: e instanceof Error ? e.message : 'Could not undo the change.' });
+    }
+  };
+
+  const open = (item: NavNode) => {
+    if (item.external) Linking.openURL(item.external);
+    else if (item.href) router.push(item.href);
+  };
+
+  const photoOptions: { key: string; label: string; source: PhotoSource }[] = [
+    { key: '', label: 'Default', source: menuDefaultPhoto[form.menu] },
+    ...photoChoices,
+  ];
+
+  return (
+    <ScrollView ref={scroller} contentContainerStyle={s.pad} keyboardShouldPersistTaps="handled">
+      <Text style={s.tabTitle}>Insights &amp; About menus</Text>
+      <Text style={[s.rowMeta, { marginTop: 4 }]}>
+        Add a page (same design as the service pages) or a link to another website to the Insights or About menu, and edit or remove
+        the existing items.
+      </Text>
+
+      <View style={[s.row, { marginTop: spacing.md, maxWidth: 760 }]}>
+        <Text style={s.rowTitle}>{form.editingId ? `Edit "${form.title || 'item'}"` : 'Add to a menu'}</Text>
+        {form.renameOnly ? (
+          <Text style={s.rowMeta}>This built-in item has its own section page, so only its name in the menu can be changed.</Text>
+        ) : null}
+
+        <Text style={s.fieldLabel}>Menu</Text>
+        <View style={s.statusRow}>
+          {MENUS.map((m) => {
+            const on = form.menu === m.id;
+            return (
+              <Pressable
+                key={m.id}
+                disabled={!!form.editingId}
+                onPress={() => set('menu', m.id)}
+                style={[s.choice, on && s.choiceOn, form.editingId && !on && { opacity: 0.4 }]}
+              >
+                <Text style={[s.choiceText, on && { color: colors.onPrimary }]}>{m.label}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        {!form.builtIn ? (
+          <>
+            <Text style={s.fieldLabel}>What is it?</Text>
+            <View style={s.statusRow}>
+              {(
+                [
+                  { id: 'page', label: 'A page with content' },
+                  { id: 'link', label: 'A link to another website' },
+                ] as const
+              ).map((o) => {
+                const on = form.kind === o.id;
+                return (
+                  <Pressable key={o.id} onPress={() => set('kind', o.id)} style={[s.choice, on && s.choiceOn]}>
+                    <Ionicons name={on ? 'radio-button-on' : 'radio-button-off'} size={16} color={on ? colors.onPrimary : colors.primary} />
+                    <Text style={[s.choiceText, on && { color: colors.onPrimary }]}>{o.label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </>
+        ) : null}
+
+        <FormField label="Name in the menu" value={form.title} onChangeText={(v) => set('title', v)} placeholder="e.g. Our Leadership" />
+
+        {form.kind === 'link' && !form.renameOnly ? (
+          <FormField
+            label="Web address"
+            value={form.link}
+            onChangeText={(v) => set('link', v)}
+            placeholder="https://"
+            autoCapitalize="none"
+            keyboardType="url"
+          />
+        ) : null}
+
+        {form.kind === 'page' && !form.renameOnly ? (
+          <>
+            <FormField
+              label="Short summary (one sentence)"
+              value={form.summary}
+              onChangeText={(v) => set('summary', v)}
+              placeholder="Shown under the title on the page and in search."
+            />
+            <FormField
+              label="Overview (leave a blank line between paragraphs)"
+              value={form.overview}
+              onChangeText={(v) => set('overview', v)}
+              multiline
+              style={s.multiline}
+              placeholder="The main text of the page."
+            />
+            <FormField
+              label="Key points (one per line, optional)"
+              value={form.points}
+              onChangeText={(v) => set('points', v)}
+              multiline
+              style={s.multiline}
+              placeholder={'Founded in 1990\nOffices in 8 cities\n500+ people'}
+            />
+            <Text style={s.fieldLabel}>Photo: pick one</Text>
+            <View style={s.photoGrid}>
+              {photoOptions.map((p) => {
+                const on = form.image === p.key;
+                return (
+                  <Pressable key={p.key || 'default'} onPress={() => set('image', p.key)} style={[s.photo, on && s.photoOn]}>
+                    <Image source={p.source} style={s.photoImg} contentFit="cover" />
+                    <Text style={[s.photoLabel, on && { color: colors.primaryLink }]} numberOfLines={1}>
+                      {p.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <ImageField label="…or use your own photo" value={isPhotoLink(form.image) ? form.image : ''} onChange={(url) => set('image', url)} />
+          </>
+        ) : null}
+
+        {message ? <FormAlert tone={message.tone} message={message.text} /> : null}
+        <View style={[s.toolbarRow, { marginTop: spacing.md, flexWrap: 'wrap' }]}>
+          <Pressable onPress={save} disabled={busy} style={[s.addBtn, busy && { opacity: 0.7 }]}>
+            <Ionicons name={form.editingId ? 'save-outline' : 'add'} size={18} color={colors.onPrimary} />
+            <Text style={{ color: colors.onPrimary, fontWeight: '700' }}>
+              {busy ? 'Saving…' : form.editingId ? 'Save changes' : `Add to ${MENUS.find((m) => m.id === form.menu)?.label}`}
+            </Text>
+          </Pressable>
+          {form.editingId || form.title ? (
+            <Pressable onPress={() => setForm(emptyMenuForm(form.menu))} style={s.exportBtn}>
+              <Text style={s.exportText}>{form.editingId ? 'Cancel' : 'Clear'}</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      </View>
+
+      {MENUS.map((m) => (
+        <View key={m.id}>
+          <Text style={[s.tabTitle, { fontSize: 18, marginTop: spacing.xl, marginBottom: spacing.sm }]}>{m.label} menu</Text>
+          <View style={s.row}>
+            {itemsOf(m.id).map((item, i) => {
+              const builtIn = isBuiltIn(item.id);
+              const edited = builtIn && rowById.has(item.id);
+              return (
+                <View key={item.id} style={[s.subRow, { paddingLeft: 0, borderTopWidth: i ? 1 : 0 }]}>
+                  <Ionicons name={item.external ? 'open-outline' : 'document-text-outline'} size={16} color={colors.textMuted} />
+                  <Pressable onPress={() => open(item)} style={{ flex: 1, minWidth: 140 }}>
+                    <Text style={s.subTitle}>{item.title}</Text>
+                  </Pressable>
+                  {confirmId === item.id ? (
+                    <View style={s.rowActions}>
+                      <Text style={[s.rowMeta, { fontSize: 13 }]}>Remove?</Text>
+                      <Pressable onPress={() => remove(m.id, item)} style={[s.status, { borderColor: '#B42318', backgroundColor: '#B42318' }]}>
+                        <Text style={[s.statusText, { color: colors.onPrimary }]}>Yes, remove</Text>
+                      </Pressable>
+                      <Pressable onPress={() => setConfirmId(null)} style={[s.status, { borderColor: colors.border }]}>
+                        <Text style={[s.statusText, { color: colors.text }]}>Cancel</Text>
+                      </Pressable>
+                    </View>
+                  ) : (
+                    <View style={s.rowActions}>
+                      <Text style={s.badge}>{item.external ? 'Link' : 'Page'}{builtIn ? (edited ? ' · built-in · edited' : ' · built-in') : ''}</Text>
+                      <Pressable onPress={() => edit(m.id, item)} style={[s.status, { borderColor: colors.primary }]}>
+                        <Text style={[s.statusText, { color: colors.primary }]}>Edit</Text>
+                      </Pressable>
+                      {edited ? (
+                        <Pressable onPress={() => reset(item.id, false)} style={[s.status, { borderColor: colors.textMuted }]}>
+                          <Text style={[s.statusText, { color: colors.textMuted }]}>Reset</Text>
+                        </Pressable>
+                      ) : null}
+                      <Pressable onPress={() => setConfirmId(item.id)} style={[s.status, { borderColor: '#B42318' }]}>
+                        <Text style={[s.statusText, { color: '#B42318' }]}>Remove</Text>
+                      </Pressable>
+                    </View>
+                  )}
+                </View>
+              );
+            })}
+            <Pressable
+              onPress={() => {
+                setMessage(null);
+                setForm(emptyMenuForm(m.id));
+                toTop();
+              }}
+              style={[s.subRow, { paddingLeft: 0, borderTopWidth: itemsOf(m.id).length ? 1 : 0 }]}
+              hitSlop={4}
+            >
+              <Ionicons name="add-circle-outline" size={16} color={colors.primaryLink} />
+              <Text style={[s.subTitle, { color: colors.primaryLink, fontWeight: '700' }]}>Add to the {m.label} menu</Text>
+            </Pressable>
+          </View>
+        </View>
+      ))}
+
+      {removedBuiltIns.length ? (
+        <>
+          <Text style={[s.tabTitle, { fontSize: 18, marginTop: spacing.xl, marginBottom: spacing.sm }]}>Removed built-in items</Text>
+          {removedBuiltIns.map((r) => (
+            <View key={r.id} style={[s.row, s.postRow]}>
+              <Ionicons name="eye-off-outline" size={18} color={colors.textMuted} />
+              <View style={{ flex: 1, minWidth: 180 }}>
+                <Text style={s.rowTitle}>{builtInTitle(r.id) ?? r.title}</Text>
+                <Text style={s.rowMeta}>{r.section === 'insights' ? 'Insights' : 'About'} menu · hidden from the site</Text>
+              </View>
+              <Pressable onPress={() => reset(r.id, true)} style={[s.status, { borderColor: colors.primary }]}>
+                <Text style={[s.statusText, { color: colors.primary }]}>Restore</Text>
+              </Pressable>
+            </View>
+          ))}
+        </>
+      ) : null}
+    </ScrollView>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Events and job posts: add, edit, remove, with an uploaded or linked photo
 // ---------------------------------------------------------------------------
 
@@ -1342,6 +1729,7 @@ const emptyOffice = (): OfficeForm => ({ id: null, city: '', country: '', addres
 function OfficesTab() {
   const { offices, reload } = useCatalog();
   const [form, setForm] = useState<OfficeForm>(emptyOffice);
+  const [picking, setPicking] = useState(false);
   const [message, setMessage] = useState<{ tone: 'error' | 'success'; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmId, setConfirmId] = useState<string | null>(null);
@@ -1450,10 +1838,30 @@ function OfficesTab() {
           autoCapitalize="none"
           keyboardType="url"
         />
-        {previewMap ? (
-          <Pressable onPress={() => Linking.openURL(previewMap)} style={{ alignSelf: 'flex-start', marginTop: 6 }} hitSlop={4}>
-            <Text style={[s.rowMeta, { color: colors.primaryLink, fontWeight: '700' }]}>Test the Map button ↗</Text>
+        <View style={[s.toolbarRow, { flexWrap: 'wrap', marginTop: spacing.sm, alignItems: 'center' }]}>
+          <Pressable onPress={() => setPicking((p) => !p)} style={s.exportBtn}>
+            <Ionicons name="map-outline" size={16} color={colors.primary} />
+            <Text style={s.exportText}>{picking ? 'Hide map' : 'Pick on map'}</Text>
           </Pressable>
+          {previewMap ? (
+            <Pressable onPress={() => Linking.openURL(previewMap)} hitSlop={4}>
+              <Text style={[s.rowMeta, { color: colors.primaryLink, fontWeight: '700' }]}>Test the Map button ↗</Text>
+            </Pressable>
+          ) : null}
+        </View>
+        {picking ? (
+          <MapPicker
+            // Re-open on a different office starts from that office's pin or address.
+            key={form.id ?? 'new'}
+            initialLink={form.mapUrl}
+            initialQuery={[form.address, form.city, form.country].map((x) => x.trim()).filter(Boolean).join(', ')}
+            onClose={() => setPicking(false)}
+            onUse={(link, place) => {
+              setForm((f) => ({ ...f, mapUrl: link, address: f.address.trim() ? f.address : place.address }));
+              setPicking(false);
+              setMessage({ tone: 'success', text: 'Map location added. Save the location to publish it.' });
+            }}
+          />
         ) : null}
         <ImageField value={form.image} onChange={(v) => set('image', v)} fallback={officeImage(form.city.trim(), 1)} />
 

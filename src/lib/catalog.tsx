@@ -4,6 +4,7 @@
 //   used until that table exists.
 // Everything becomes the same Service / Topic / EventItem / Job objects as before, so it renders
 // with exactly the same screens and styles.
+import type { Href } from 'expo-router';
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import {
@@ -55,10 +56,30 @@ type CatalogValue = {
 
 const CatalogContext = createContext<CatalogValue | null>(null);
 
-/** Ids of the services and service pages that ship with the app. */
+/** Ids of the services, service pages and Insights / About menu items that ship with the app. */
 const builtInServiceTopics = builtInTopics.filter((t) => t.parent.kind === 'service');
-const BUILT_IN_IDS = new Set([...builtInServices.map((s) => s.id), ...builtInServiceTopics.map((t) => t.id)]);
-const BUILT_IN_TITLES = new Map([...builtInServices, ...builtInServiceTopics].map((x) => [x.id, x.title]));
+const builtInMenuItems = builtInNav.filter((n) => n.id === 'insights' || n.id === 'about').flatMap((n) => n.children ?? []);
+const BUILT_IN_IDS = new Set([
+  ...builtInServices.map((s) => s.id),
+  ...builtInServiceTopics.map((t) => t.id),
+  ...builtInMenuItems.map((n) => n.id),
+]);
+const BUILT_IN_TITLES = new Map([...builtInServices, ...builtInServiceTopics, ...builtInMenuItems].map((x) => [x.id, x.title]));
+/** Built-in About pages that can be edited like service pages (History, Awards, EDGE). */
+const EDITABLE_MENU_PAGES = new Set(builtInMenuItems.filter((n) => String(n.href ?? '').startsWith('/topic/')).map((n) => n.id));
+
+/** A page added to the Insights or About menu. */
+const toMenuTopic = (r: SiteServiceRow): Topic => ({
+  id: r.id,
+  title: r.title,
+  summary: r.summary,
+  points: r.points,
+  parent: { kind: r.section === 'insights' ? 'insights' : 'about', id: r.section },
+  overview: r.overview.length ? r.overview : undefined,
+  custom: true,
+  image: r.image || undefined,
+  leader: r.leader ?? undefined,
+});
 
 const toService = (r: SiteServiceRow): Service => ({
   id: r.id,
@@ -167,6 +188,8 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
     // A database row with a built-in id edits (or, when hidden, removes) that built-in item.
     const rowById = new Map(custom.map((r) => [r.id, r]));
     const added = custom.filter((r) => !BUILT_IN_IDS.has(r.id) && !r.hidden);
+    const addedServices = added.filter((r) => r.section === 'service');
+    const addedMenuItems = added.filter((r) => r.section !== 'service');
 
     const editedBuiltIns = builtInServices.flatMap((s): Service[] => {
       const r = rowById.get(s.id);
@@ -176,11 +199,12 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
         { ...s, title: r.title, summary: r.summary, description: r.description, icon: (r.icon || s.icon) as IconName, offerings: r.points, leader: r.leader ?? undefined },
       ];
     });
-    const services = [...editedBuiltIns, ...added.filter((r) => !r.parent_id).map(toService)];
+    const services = [...editedBuiltIns, ...addedServices.filter((r) => !r.parent_id).map(toService)];
     const serviceIds = new Set(services.map((s) => s.id));
 
     const editedTopics = builtInTopics.flatMap((t): Topic[] => {
-      const r = t.parent.kind === 'service' ? rowById.get(t.id) : undefined;
+      const editable = t.parent.kind === 'service' || EDITABLE_MENU_PAGES.has(t.id);
+      const r = editable ? rowById.get(t.id) : undefined;
       if (!r) return [t];
       if (r.hidden) return [];
       const overview = r.overview.length ? r.overview : undefined;
@@ -190,7 +214,8 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
           title: r.title,
           summary: r.summary,
           points: r.points,
-          parent: { kind: 'service', id: r.parent_id ?? t.parent.id },
+          // Service pages can move to another main service; About pages stay in About.
+          parent: t.parent.kind === 'service' ? { kind: 'service', id: r.parent_id ?? t.parent.id } : t.parent,
           overview,
           leader: r.leader ?? undefined,
           image: r.image || undefined,
@@ -199,11 +224,32 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
         },
       ];
     });
-    const topics = [...editedTopics, ...added.filter((r) => r.parent_id).map(toTopic)]
+    const topics = [
+      ...editedTopics,
+      ...addedServices.filter((r) => r.parent_id).map(toTopic),
+      // Insights / About items that are pages (links to other websites have no page).
+      ...addedMenuItems.filter((r) => !r.link).map(toMenuTopic),
+    ]
       // Pages whose main service was removed are hidden too.
       .filter((t) => t.parent.kind !== 'service' || serviceIds.has(t.parent.id));
 
-    const mainNav = builtInNav.map((n) => (n.id === 'services' ? servicesNav(services, topics) : n));
+    // Insights and About menus: built-in items (renamed or removed by an admin) plus added ones.
+    const menuWithAdded = (node: NavNode): NavNode => ({
+      ...node,
+      children: [
+        ...(node.children ?? []).flatMap((c): NavNode[] => {
+          const r = rowById.get(c.id);
+          if (!r) return [c];
+          return r.hidden ? [] : [{ ...c, title: r.title }];
+        }),
+        ...addedMenuItems
+          .filter((r) => r.section === node.id)
+          .map((r): NavNode => (r.link ? { id: r.id, title: r.title, external: r.link } : { id: r.id, title: r.title, href: `/topic/${r.id}` as Href })),
+      ],
+    });
+    const mainNav = builtInNav.map((n) =>
+      n.id === 'services' ? servicesNav(services, topics) : n.id === 'insights' || n.id === 'about' ? menuWithAdded(n) : n,
+    );
     return {
       services,
       topics,
