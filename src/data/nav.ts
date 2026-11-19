@@ -12,6 +12,8 @@ export type Topic = {
   parent: { kind: "service" | "industry" | "about"; id: string };
   /** Overview paragraphs for template pages (used by services added from the admin panel). */
   overview?: string[];
+  /** Added from the admin panel: the page shows only the admin's own text, no template copy. */
+  custom?: boolean;
   /** Optional long-form page content; pages without it use a template built from summary and points. */
   page?: {
     headline: string;

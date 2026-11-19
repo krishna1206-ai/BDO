@@ -570,12 +570,12 @@ function ServicesTab() {
         {isMain ? (
           <>
             <FormField
-              label="Introduction paragraph"
+              label="Overview"
               value={form.description}
               onChangeText={(v) => set('description', v)}
               multiline
               style={s.multiline}
-              placeholder="A few sentences about this service, shown at the top of its page."
+              placeholder="A few sentences about this service, shown at the top of its page under the summary."
             />
             <Text style={s.fieldLabel}>Icon</Text>
             <View style={s.statusRow}>

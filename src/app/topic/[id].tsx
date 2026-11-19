@@ -115,9 +115,19 @@ export default function TopicScreen() {
         intro={
           topic.page?.intro ??
           topic.overview ??
-          `${topic.summary} Our ${parent.title} specialists work alongside your team to deliver support that is practical, proportionate and built around your business.`
+          // Admin-added pages show only the admin's own words; built-in pages get the template sentence.
+          (topic.custom
+            ? topic.summary
+            : `${topic.summary} Our ${parent.title} specialists work alongside your team to deliver support that is practical, proportionate and built around your business.`)
         }
-        sections={topic.page?.sections ?? templateSections(topic, parent.title)}
+        sections={
+          topic.page?.sections ??
+          (topic.custom
+            ? topic.points.length
+              ? [{ title: 'How we help', bullets: topic.points }]
+              : []
+            : templateSections(topic, parent.title))
+        }
         sideTitle={`Our ${topic.title}`}
         sideLinks={offerings}
         contactTopic={topic.title}

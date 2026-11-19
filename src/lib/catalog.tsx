@@ -42,6 +42,7 @@ const toTopic = (r: SiteServiceRow): Topic => ({
   points: r.points,
   parent: { kind: 'service', id: r.parent_id as string },
   overview: r.overview.length ? r.overview : undefined,
+  custom: true,
 });
 
 export function CatalogProvider({ children }: { children: ReactNode }) {
