@@ -121,3 +121,8 @@ export function officeImage(city: string, index: number): number {
   if (city === 'London') return require('../../assets/images/office-london.jpg');
   return officeInteriors[index % officeInteriors.length];
 }
+
+/** An event's photo: the admin's uploaded/linked photo, or the default for its format. */
+export function eventImage(item: Pick<EventItem, 'format' | 'image'>): number | { uri: string } {
+  return item.image ? { uri: item.image } : eventImages[item.format];
+}

@@ -1,12 +1,13 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import Animated, { LinearTransition } from 'react-native-reanimated';
 
 import { Image } from 'expo-image';
 
 import {
   Card,
+  CardImage,
   PressableScale,
   Reveal,
   ScrollRevealProvider,
@@ -15,14 +16,16 @@ import {
   useReplayKey,
   useScrollTracker,
 } from '@/components/ui';
-import { jobs, type Job } from '@/data/content';
+import type { Job } from '@/data/content';
 import { careersImage } from '@/data/images';
+import { useCatalog } from '@/lib/catalog';
 import { colors, radius, spacing } from '@/theme';
 
 const types: ('All' | Job['type'])[] = ['All', 'Graduate', 'Internship', 'Experienced'];
 
 export default function CareersScreen() {
   const [type, setType] = useState<(typeof types)[number]>('All');
+  const { jobs, loaded } = useCatalog();
   const data = jobs.filter((j) => type === 'All' || j.type === type);
   const replayKey = useReplayKey();
   const { scrollY, onScroll } = useScrollTracker();
@@ -55,12 +58,22 @@ export default function CareersScreen() {
           </View>
         </View>
       }
+      ListEmptyComponent={
+        loaded ? (
+          <Text style={[ui.body, { color: colors.textMuted, textAlign: 'center', marginTop: spacing.lg }]}>
+            No open roles here right now. Check back soon.
+          </Text>
+        ) : (
+          <ActivityIndicator style={{ marginTop: spacing.xl }} color={colors.primary} />
+        )
+      }
       renderItem={({ item, index }) => (
         <Card
           index={index}
-          style={{ marginBottom: spacing.sm }}
+          style={[{ marginBottom: spacing.sm }, item.image ? { overflow: 'hidden' } : null]}
           onPress={() => router.push(`/apply/${item.id}`)}
         >
+          {item.image ? <CardImage source={{ uri: item.image }} height={130} /> : null}
           <Tag label={item.type} />
           <Text style={s.title}>{item.title}</Text>
           <Text style={ui.muted}>

@@ -1,5 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
+import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentRef } from 'react';
 import {
@@ -21,7 +22,8 @@ import Animated, { FadeIn, ReduceMotion } from 'react-native-reanimated';
 
 import { EMAIL_RE, FormAlert, FormField, authStyles } from '@/components/form';
 import { styles as ui } from '@/components/ui';
-import { photoChoices } from '@/data/images';
+import { formatDate, type EventItem, type Job } from '@/data/content';
+import { eventImage, photoChoices } from '@/data/images';
 import { useAuth } from '@/lib/auth';
 import { useCatalog } from '@/lib/catalog';
 import {
@@ -34,12 +36,17 @@ import {
   adminRegistrations,
   changePassword,
   createSiteService,
+  deleteSiteEvent,
+  deleteSiteJob,
   deleteSiteService,
   listAdmins,
   removeAdmin,
+  saveSiteEvent,
+  saveSiteJob,
   setApplicationStatus,
   setEnquiryStatus,
   updateSiteService,
+  uploadSiteImage,
   type ActivityItem,
   type ApplicationRow,
   type ApplicationStatus,
@@ -51,11 +58,23 @@ import {
 } from '@/lib/db';
 import { colors, radius, spacing } from '@/theme';
 
-type Tab = 'overview' | 'services' | 'users' | 'enquiries' | 'applications' | 'events' | 'admins' | 'account';
+type Tab =
+  | 'overview'
+  | 'services'
+  | 'event-posts'
+  | 'job-posts'
+  | 'users'
+  | 'enquiries'
+  | 'applications'
+  | 'events'
+  | 'admins'
+  | 'account';
 
 const TABS: { id: Tab; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { id: 'overview', label: 'Overview', icon: 'speedometer-outline' },
   { id: 'services', label: 'Services', icon: 'grid-outline' },
+  { id: 'event-posts', label: 'Events', icon: 'megaphone-outline' },
+  { id: 'job-posts', label: 'Jobs', icon: 'document-text-outline' },
   { id: 'users', label: 'Users', icon: 'people-outline' },
   { id: 'enquiries', label: 'Enquiries', icon: 'mail-outline' },
   { id: 'applications', label: 'Applications', icon: 'briefcase-outline' },
@@ -146,6 +165,8 @@ export default function AdminScreen() {
       <View style={{ flex: 1 }}>
         {tab === 'overview' ? <Overview onOpen={setTab} /> : null}
         {tab === 'services' ? <ServicesTab /> : null}
+        {tab === 'event-posts' ? <EventPostsTab /> : null}
+        {tab === 'job-posts' ? <JobPostsTab /> : null}
         {tab === 'users' ? <UsersTab /> : null}
         {tab === 'enquiries' ? <EnquiriesTab /> : null}
         {tab === 'applications' ? <ApplicationsTab /> : null}
@@ -669,6 +690,418 @@ function ServicesTab() {
           </View>
         );
       })}
+    </ScrollView>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Events and job posts: add, edit, remove, with an uploaded or linked photo
+// ---------------------------------------------------------------------------
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const isRealDate = (v: string) => DATE_RE.test(v) && !Number.isNaN(new Date(`${v}T00:00:00Z`).getTime()) && new Date(`${v}T00:00:00Z`).toISOString().startsWith(v);
+
+/** Photo for a post: upload from the device, paste a link, or leave empty for the default photo. */
+function ImageField({ value, onChange, fallback }: { value: string; onChange: (url: string) => void; fallback?: number }) {
+  const [link, setLink] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const upload = async () => {
+    if (busy) return;
+    setError('');
+    // Must run straight from the button press (browsers block pickers opened later).
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.8 });
+    const asset = result.canceled ? null : result.assets?.[0];
+    if (!asset) return;
+    if (asset.fileSize && asset.fileSize > 5 * 1024 * 1024) {
+      setError('That photo is too big. Choose one under 5 MB.');
+      return;
+    }
+    setBusy(true);
+    try {
+      onChange(await uploadSiteImage({ uri: asset.uri, mimeType: asset.mimeType, file: asset.file }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not upload the photo.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const applyLink = () => {
+    const url = link.trim();
+    if (!/^https?:\/\/\S+$/i.test(url)) {
+      setError('Paste a full image link starting with https://');
+      return;
+    }
+    setError('');
+    onChange(url);
+    setLink('');
+  };
+
+  const preview = value ? { uri: value } : fallback;
+  return (
+    <View>
+      <Text style={s.fieldLabel}>Photo</Text>
+      <View style={s.imageRow}>
+        <View style={s.imagePreview}>
+          {preview ? <Image source={preview} style={StyleSheet.absoluteFill} contentFit="cover" transition={200} /> : null}
+          {busy ? (
+            <View style={[StyleSheet.absoluteFill, s.imageBusy]}>
+              <ActivityIndicator color={colors.onPrimary} />
+            </View>
+          ) : null}
+        </View>
+        <View style={{ flex: 1, minWidth: 220, gap: spacing.sm }}>
+          <Text style={s.rowMeta}>{value ? 'Custom photo selected.' : fallback ? 'Using the default photo.' : 'No photo.'}</Text>
+          <View style={[s.toolbarRow, { flexWrap: 'wrap' }]}>
+            <Pressable onPress={upload} disabled={busy} style={[s.exportBtn, busy && { opacity: 0.6 }]}>
+              <Ionicons name="cloud-upload-outline" size={16} color={colors.primary} />
+              <Text style={s.exportText}>{busy ? 'Uploading…' : 'Upload photo'}</Text>
+            </Pressable>
+            {value ? (
+              <Pressable onPress={() => onChange('')} style={[s.exportBtn, { borderColor: '#B42318' }]}>
+                <Ionicons name="close" size={16} color="#B42318" />
+                <Text style={[s.exportText, { color: '#B42318' }]}>Remove photo</Text>
+              </Pressable>
+            ) : null}
+          </View>
+          <View style={s.toolbarRow}>
+            <View style={s.search}>
+              <Ionicons name="link-outline" size={16} color={colors.textMuted} />
+              <TextInput
+                value={link}
+                onChangeText={setLink}
+                placeholder="…or paste an image link (https://…)"
+                placeholderTextColor={colors.textMuted}
+                autoCapitalize="none"
+                keyboardType="url"
+                style={s.searchInput}
+                onSubmitEditing={applyLink}
+              />
+            </View>
+            <Pressable onPress={applyLink} style={s.addBtn}>
+              <Text style={{ color: colors.onPrimary, fontWeight: '700' }}>Use link</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+      {error ? <FormAlert message={error} /> : null}
+    </View>
+  );
+}
+
+/** Pill buttons for picking one value. */
+function Choices<T extends string>({ value, options, onChange }: { value: T; options: readonly T[]; onChange: (v: T) => void }) {
+  return (
+    <View style={s.statusRow}>
+      {options.map((o) => {
+        const on = o === value;
+        return (
+          <Pressable key={o} onPress={() => onChange(o)} style={[s.choice, on && s.choiceOn]}>
+            <Text style={[s.choiceText, on && { color: colors.onPrimary }]}>{o}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+/** Edit / Remove buttons with an inline "are you sure?" step. */
+function PostActions({ confirming, onEdit, onAskRemove, onRemove, onCancel }: {
+  confirming: boolean;
+  onEdit: () => void;
+  onAskRemove: () => void;
+  onRemove: () => void;
+  onCancel: () => void;
+}) {
+  if (confirming) {
+    return (
+      <View style={s.rowActions}>
+        <Text style={[s.rowMeta, { fontSize: 13 }]}>Remove?</Text>
+        <Pressable onPress={onRemove} style={[s.status, { borderColor: '#B42318', backgroundColor: '#B42318' }]}>
+          <Text style={[s.statusText, { color: colors.onPrimary }]}>Yes, remove</Text>
+        </Pressable>
+        <Pressable onPress={onCancel} style={[s.status, { borderColor: colors.border }]}>
+          <Text style={[s.statusText, { color: colors.text }]}>Cancel</Text>
+        </Pressable>
+      </View>
+    );
+  }
+  return (
+    <View style={s.rowActions}>
+      <Pressable onPress={onEdit} style={[s.status, { borderColor: colors.primary }]}>
+        <Text style={[s.statusText, { color: colors.primary }]}>Edit</Text>
+      </Pressable>
+      <Pressable onPress={onAskRemove} style={[s.status, { borderColor: '#B42318' }]}>
+        <Text style={[s.statusText, { color: '#B42318' }]}>Remove</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+const EVENT_FORMATS = ['Webinar', 'In person'] as const;
+type EventForm = { id: string | null; title: string; date: string; format: EventItem['format']; location: string; description: string; image: string };
+const emptyEvent = (): EventForm => ({ id: null, title: '', date: '', format: 'Webinar', location: 'Online', description: '', image: '' });
+
+function EventPostsTab() {
+  const { events, reload } = useCatalog();
+  const [form, setForm] = useState<EventForm>(emptyEvent);
+  const [message, setMessage] = useState<{ tone: 'error' | 'success'; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [confirmId, setConfirmId] = useState<string | null>(null);
+  const scroller = useRef<ComponentRef<typeof ScrollView>>(null);
+  const set = <K extends keyof EventForm>(k: K, v: EventForm[K]) => setForm((f) => ({ ...f, [k]: v }));
+  const today = new Date().toISOString().slice(0, 10);
+
+  const edit = (e: EventItem) => {
+    setMessage(null);
+    setForm({ id: e.id, title: e.title, date: e.date, format: e.format, location: e.location, description: e.description, image: e.image ?? '' });
+    scroller.current?.scrollTo({ y: 0, animated: true });
+  };
+
+  const save = async () => {
+    if (busy) return;
+    const title = form.title.trim();
+    const date = form.date.trim();
+    if (!title) return setMessage({ tone: 'error', text: 'Enter the event title.' });
+    if (!isRealDate(date)) return setMessage({ tone: 'error', text: 'Enter the date as YYYY-MM-DD, for example 2026-12-15.' });
+    if (!form.location.trim()) return setMessage({ tone: 'error', text: 'Enter where it takes place (or "Online").' });
+    setBusy(true);
+    setMessage(null);
+    try {
+      await saveSiteEvent({
+        id: form.id ?? undefined,
+        title,
+        date,
+        format: form.format,
+        location: form.location.trim(),
+        description: form.description.trim(),
+        image_url: form.image || null,
+      });
+      await reload();
+      setMessage({ tone: 'success', text: `"${title}" ${form.id ? 'saved' : 'added'}. It is live on the Events page now.` });
+      setForm(emptyEvent());
+    } catch (e) {
+      setMessage({ tone: 'error', text: e instanceof Error ? e.message : 'Could not save the event.' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (e: EventItem) => {
+    setConfirmId(null);
+    setMessage(null);
+    try {
+      await deleteSiteEvent(e.id);
+      if (form.id === e.id) setForm(emptyEvent());
+      await reload();
+      setMessage({ tone: 'success', text: `"${e.title}" removed. Its past sign-ups stay in Event sign-ups.` });
+    } catch (err) {
+      setMessage({ tone: 'error', text: err instanceof Error ? err.message : 'Could not remove the event.' });
+    }
+  };
+
+  return (
+    <ScrollView ref={scroller} contentContainerStyle={s.pad} keyboardShouldPersistTaps="handled">
+      <Text style={s.tabTitle}>Events</Text>
+      <Text style={[s.rowMeta, { marginTop: 4 }]}>Add, change or remove the events shown on the Events page and the home page.</Text>
+
+      <View style={[s.row, { marginTop: spacing.md, maxWidth: 760 }]}>
+        <Text style={s.rowTitle}>{form.id ? `Edit "${form.title || 'event'}"` : 'Add an event'}</Text>
+        <FormField label="Title" value={form.title} onChangeText={(v) => set('title', v)} placeholder="e.g. Budget briefing 2027" />
+        <FormField
+          label="Date (YYYY-MM-DD)"
+          value={form.date}
+          onChangeText={(v) => set('date', v)}
+          placeholder={`e.g. ${today}`}
+          autoCapitalize="none"
+          maxLength={10}
+        />
+        <Text style={s.fieldLabel}>Type</Text>
+        <Choices
+          value={form.format}
+          options={EVENT_FORMATS}
+          onChange={(v) => setForm((f) => ({ ...f, format: v, location: v === 'Webinar' && !f.location.trim() ? 'Online' : f.location }))}
+        />
+        <FormField label="Location" value={form.location} onChangeText={(v) => set('location', v)} placeholder="Online, or a city" />
+        <FormField
+          label="Description"
+          value={form.description}
+          onChangeText={(v) => set('description', v)}
+          multiline
+          style={s.multiline}
+          placeholder="What the event covers and who it is for."
+        />
+        <ImageField value={form.image} onChange={(v) => set('image', v)} fallback={eventImage({ format: form.format }) as number} />
+
+        {message ? <FormAlert tone={message.tone} message={message.text} /> : null}
+        <View style={[s.toolbarRow, { marginTop: spacing.md, flexWrap: 'wrap' }]}>
+          <Pressable onPress={save} disabled={busy} style={[s.addBtn, busy && { opacity: 0.7 }]}>
+            <Ionicons name={form.id ? 'save-outline' : 'add'} size={18} color={colors.onPrimary} />
+            <Text style={{ color: colors.onPrimary, fontWeight: '700' }}>{busy ? 'Saving…' : form.id ? 'Save changes' : 'Add event'}</Text>
+          </Pressable>
+          {form.id || form.title ? (
+            <Pressable onPress={() => setForm(emptyEvent())} style={s.exportBtn}>
+              <Text style={s.exportText}>{form.id ? 'Cancel' : 'Clear'}</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      </View>
+
+      <Text style={[s.tabTitle, { fontSize: 18, marginTop: spacing.xl, marginBottom: spacing.sm }]}>
+        All events <Text style={s.count}>({events.length})</Text>
+      </Text>
+      {events.length === 0 ? <Text style={s.empty}>No events yet.</Text> : null}
+      {[...events]
+        .sort((a, b) => a.date.localeCompare(b.date))
+        .map((e) => (
+          <View key={e.id} style={[s.row, s.postRow]}>
+            <Image source={eventImage(e)} style={s.postThumb} contentFit="cover" />
+            <View style={{ flex: 1, minWidth: 180 }}>
+              <Text style={s.rowTitle}>{e.title}</Text>
+              <Text style={s.rowMeta}>
+                {formatDate(e.date)} · {e.format} · {e.location}
+                {e.date < today ? <Text style={{ color: '#B42318' }}>  (past)</Text> : null}
+              </Text>
+            </View>
+            <PostActions
+              confirming={confirmId === e.id}
+              onEdit={() => edit(e)}
+              onAskRemove={() => setConfirmId(e.id)}
+              onRemove={() => remove(e)}
+              onCancel={() => setConfirmId(null)}
+            />
+          </View>
+        ))}
+    </ScrollView>
+  );
+}
+
+const JOB_TYPES = ['Graduate', 'Experienced', 'Internship'] as const;
+type JobForm = { id: string | null; title: string; team: string; location: string; type: Job['type']; description: string; image: string };
+const emptyJob = (): JobForm => ({ id: null, title: '', team: '', location: '', type: 'Experienced', description: '', image: '' });
+
+function JobPostsTab() {
+  const { jobs, reload } = useCatalog();
+  const [form, setForm] = useState<JobForm>(emptyJob);
+  const [message, setMessage] = useState<{ tone: 'error' | 'success'; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [confirmId, setConfirmId] = useState<string | null>(null);
+  const scroller = useRef<ComponentRef<typeof ScrollView>>(null);
+  const set = <K extends keyof JobForm>(k: K, v: JobForm[K]) => setForm((f) => ({ ...f, [k]: v }));
+
+  const edit = (j: Job) => {
+    setMessage(null);
+    setForm({ id: j.id, title: j.title, team: j.team, location: j.location, type: j.type, description: j.description ?? '', image: j.image ?? '' });
+    scroller.current?.scrollTo({ y: 0, animated: true });
+  };
+
+  const save = async () => {
+    if (busy) return;
+    const title = form.title.trim();
+    if (!title) return setMessage({ tone: 'error', text: 'Enter the job title.' });
+    if (!form.team.trim()) return setMessage({ tone: 'error', text: 'Enter the team, for example Tax.' });
+    if (!form.location.trim()) return setMessage({ tone: 'error', text: 'Enter the location.' });
+    setBusy(true);
+    setMessage(null);
+    try {
+      await saveSiteJob({
+        id: form.id ?? undefined,
+        title,
+        team: form.team.trim(),
+        location: form.location.trim(),
+        type: form.type,
+        description: form.description.trim(),
+        image_url: form.image || null,
+      });
+      await reload();
+      setMessage({ tone: 'success', text: `"${title}" ${form.id ? 'saved' : 'added'}. It is live on the Careers page now.` });
+      setForm(emptyJob());
+    } catch (e) {
+      setMessage({ tone: 'error', text: e instanceof Error ? e.message : 'Could not save the job.' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (j: Job) => {
+    setConfirmId(null);
+    setMessage(null);
+    try {
+      await deleteSiteJob(j.id);
+      if (form.id === j.id) setForm(emptyJob());
+      await reload();
+      setMessage({ tone: 'success', text: `"${j.title}" removed. Applications already received stay in Applications.` });
+    } catch (err) {
+      setMessage({ tone: 'error', text: err instanceof Error ? err.message : 'Could not remove the job.' });
+    }
+  };
+
+  return (
+    <ScrollView ref={scroller} contentContainerStyle={s.pad} keyboardShouldPersistTaps="handled">
+      <Text style={s.tabTitle}>Jobs</Text>
+      <Text style={[s.rowMeta, { marginTop: 4 }]}>Add, change or remove the roles shown on the Careers page.</Text>
+
+      <View style={[s.row, { marginTop: spacing.md, maxWidth: 760 }]}>
+        <Text style={s.rowTitle}>{form.id ? `Edit "${form.title || 'job'}"` : 'Add a job'}</Text>
+        <FormField label="Job title" value={form.title} onChangeText={(v) => set('title', v)} placeholder="e.g. Senior Tax Consultant" />
+        <Text style={s.fieldLabel}>Type</Text>
+        <Choices value={form.type} options={JOB_TYPES} onChange={(v) => set('type', v)} />
+        <FormField label="Team" value={form.team} onChangeText={(v) => set('team', v)} placeholder="e.g. Tax" />
+        <FormField label="Location" value={form.location} onChangeText={(v) => set('location', v)} placeholder="e.g. London" />
+        <FormField
+          label="Description (optional)"
+          value={form.description}
+          onChangeText={(v) => set('description', v)}
+          multiline
+          style={s.multiline}
+          placeholder="About the role, shown on the application page."
+        />
+        <ImageField value={form.image} onChange={(v) => set('image', v)} />
+
+        {message ? <FormAlert tone={message.tone} message={message.text} /> : null}
+        <View style={[s.toolbarRow, { marginTop: spacing.md, flexWrap: 'wrap' }]}>
+          <Pressable onPress={save} disabled={busy} style={[s.addBtn, busy && { opacity: 0.7 }]}>
+            <Ionicons name={form.id ? 'save-outline' : 'add'} size={18} color={colors.onPrimary} />
+            <Text style={{ color: colors.onPrimary, fontWeight: '700' }}>{busy ? 'Saving…' : form.id ? 'Save changes' : 'Add job'}</Text>
+          </Pressable>
+          {form.id || form.title ? (
+            <Pressable onPress={() => setForm(emptyJob())} style={s.exportBtn}>
+              <Text style={s.exportText}>{form.id ? 'Cancel' : 'Clear'}</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      </View>
+
+      <Text style={[s.tabTitle, { fontSize: 18, marginTop: spacing.xl, marginBottom: spacing.sm }]}>
+        All jobs <Text style={s.count}>({jobs.length})</Text>
+      </Text>
+      {jobs.length === 0 ? <Text style={s.empty}>No jobs yet.</Text> : null}
+      {jobs.map((j) => (
+        <View key={j.id} style={[s.row, s.postRow]}>
+          {j.image ? (
+            <Image source={{ uri: j.image }} style={s.postThumb} contentFit="cover" />
+          ) : (
+            <View style={[s.postThumb, s.postThumbEmpty]}>
+              <Ionicons name="briefcase-outline" size={22} color={colors.primary} />
+            </View>
+          )}
+          <View style={{ flex: 1, minWidth: 180 }}>
+            <Text style={s.rowTitle}>{j.title}</Text>
+            <Text style={s.rowMeta}>
+              {j.type} · {j.team} · {j.location}
+            </Text>
+          </View>
+          <PostActions
+            confirming={confirmId === j.id}
+            onEdit={() => edit(j)}
+            onAskRemove={() => setConfirmId(j.id)}
+            onRemove={() => remove(j)}
+            onCancel={() => setConfirmId(null)}
+          />
+        </View>
+      ))}
     </ScrollView>
   );
 }
@@ -1210,5 +1643,12 @@ const s = StyleSheet.create({
   },
   subTitle: { fontSize: 15, color: colors.text },
   rowActions: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  // Events / Jobs tabs
+  imageRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md, marginTop: spacing.sm, alignItems: 'flex-start' },
+  imagePreview: { width: 160, height: 100, borderRadius: radius.sm, overflow: 'hidden', backgroundColor: '#E8EEF6' },
+  imageBusy: { backgroundColor: 'rgba(0,0,0,0.35)', alignItems: 'center', justifyContent: 'center' },
+  postRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, flexWrap: 'wrap' },
+  postThumb: { width: 72, height: 48, borderRadius: radius.sm, backgroundColor: '#E8EEF6' },
+  postThumbEmpty: { alignItems: 'center', justifyContent: 'center' },
   badge: { fontSize: 12, fontWeight: '700', color: colors.textMuted, paddingHorizontal: 8, paddingVertical: 3, backgroundColor: '#EEF2F7', borderRadius: radius.lg },
 });

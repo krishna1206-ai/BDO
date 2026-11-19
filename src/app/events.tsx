@@ -1,6 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useEffect, useState } from 'react';
-import { Alert, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, StyleSheet, Text, View } from 'react-native';
 import Animated, { ReduceMotion, ZoomIn } from 'react-native-reanimated';
 
 import {
@@ -13,14 +13,16 @@ import {
   useReplayKey,
   useScrollTracker,
 } from '@/components/ui';
-import { events, formatDate } from '@/data/content';
-import { eventImages } from '@/data/images';
+import { formatDate } from '@/data/content';
+import { eventImage } from '@/data/images';
 import { useAuth } from '@/lib/auth';
+import { useCatalog } from '@/lib/catalog';
 import { cancelEventRegistration, myEventRegistrations, registerForEvent } from '@/lib/db';
 import { colors, radius, spacing } from '@/theme';
 
 export default function EventsScreen() {
   const { user } = useAuth();
+  const { events, loaded } = useCatalog();
   const [registered, setRegistered] = useState<Set<string>>(new Set());
   const [pending, setPending] = useState<string | null>(null);
   const replayKey = useReplayKey();
@@ -74,11 +76,20 @@ export default function EventsScreen() {
       contentContainerStyle={ui.screen}
       onScroll={onScroll}
       scrollEventThrottle={16}
+      ListEmptyComponent={
+        loaded ? (
+          <Text style={[ui.body, { color: colors.textMuted, textAlign: 'center', marginTop: spacing.lg }]}>
+            No upcoming events right now. Check back soon.
+          </Text>
+        ) : (
+          <ActivityIndicator style={{ marginTop: spacing.xl }} color={colors.primary} />
+        )
+      }
       renderItem={({ item, index }) => {
         const isRegistered = registered.has(item.id);
         return (
           <Card index={index} style={{ marginBottom: spacing.md, overflow: 'hidden' }}>
-            <CardImage source={eventImages[item.format]} height={130} />
+            <CardImage source={eventImage(item)} height={130} />
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Tag label={item.format} />
               <Text style={s.date}>{formatDate(item.date)}</Text>

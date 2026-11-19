@@ -1,26 +1,39 @@
-// The full list of services: the built-in ones from src/data plus any an admin added
-// (public.site_services, see supabase/services.sql). Admin-added services become ordinary
-// Service / Topic objects, so they render with exactly the same screens and styles.
+// Content that admins can change from the admin panel, merged with the app's built-in content:
+// - services: built-in ones from src/data plus admin-added ones (supabase/services.sql)
+// - events and job posts: stored in the database (supabase/posts.sql); the built-in lists are only
+//   used until that table exists.
+// Everything becomes the same Service / Topic / EventItem / Job objects as before, so it renders
+// with exactly the same screens and styles.
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
-import { services as builtInServices, type IconName, type Service } from '@/data/content';
+import {
+  events as builtInEvents,
+  jobs as builtInJobs,
+  services as builtInServices,
+  type EventItem,
+  type IconName,
+  type Job,
+  type Service,
+} from '@/data/content';
 import { photoByKey, serviceImages } from '@/data/images';
 import { mainNav as builtInNav, servicesNav, topics as builtInTopics, type NavNode, type Topic } from '@/data/nav';
 
 import { useAuth } from './auth';
-import { listSiteServices, type SiteServiceRow } from './db';
+import { listSiteEvents, listSiteJobs, listSiteServices, type SiteEventRow, type SiteJobRow, type SiteServiceRow } from './db';
 
 type CatalogValue = {
   services: Service[];
   topics: Topic[];
   mainNav: NavNode[];
+  events: EventItem[];
+  jobs: Job[];
   /** Admin-added services as stored in the database. */
   custom: SiteServiceRow[];
-  /** False until the admin-added services have been fetched (or failed to). */
+  /** False until the database content has been fetched (or failed to). */
   loaded: boolean;
   serviceImage: (serviceId: string) => number;
   topicById: (id: string) => Topic | undefined;
-  /** Fetch the admin-added services again (after an admin changes them). */
+  /** Fetch the database content again (after an admin changes it). */
   reload: () => Promise<void>;
 };
 
@@ -45,36 +58,73 @@ const toTopic = (r: SiteServiceRow): Topic => ({
   custom: true,
 });
 
+const toEvent = (r: SiteEventRow): EventItem => ({
+  id: r.id,
+  title: r.title,
+  date: r.date,
+  format: r.format,
+  location: r.location,
+  description: r.description,
+  image: r.image_url || undefined,
+});
+
+const toJob = (r: SiteJobRow): Job => ({
+  id: r.id,
+  title: r.title,
+  team: r.team,
+  location: r.location,
+  type: r.type,
+  description: r.description || undefined,
+  image: r.image_url || undefined,
+});
+
+type Remote = {
+  services: SiteServiceRow[];
+  /** null = table not set up (or offline): use the built-in list. */
+  events: EventItem[] | null;
+  jobs: Job[] | null;
+};
+
+/** Fetches everything; each part falls back on its own if its table isn't set up yet. */
+async function fetchRemote(): Promise<Remote> {
+  const [services, events, jobs] = await Promise.all([
+    listSiteServices().catch(() => [] as SiteServiceRow[]),
+    listSiteEvents()
+      .then((rows) => rows.map(toEvent))
+      .catch(() => null),
+    listSiteJobs()
+      .then((rows) => rows.map(toJob))
+      .catch(() => null),
+  ]);
+  return { services, events, jobs };
+}
+
 export function CatalogProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const userId = user?.id;
-  const [custom, setCustom] = useState<SiteServiceRow[]>([]);
+  const [remote, setRemote] = useState<Remote>({ services: [], events: null, jobs: null });
   const [loaded, setLoaded] = useState(false);
 
   const reload = useCallback(async () => {
-    try {
-      setCustom(await listSiteServices());
-    } catch {
-      // Table not created yet (run supabase/services.sql) or offline: show the built-in services only.
-    }
+    setRemote(await fetchRemote());
     setLoaded(true);
   }, []);
 
   // Fetch on start and again after signing in or switching account.
   useEffect(() => {
     let active = true;
-    listSiteServices()
-      .then((rows) => active && setCustom(rows))
-      .catch(() => {
-        // Table not created yet (run supabase/services.sql) or offline: show the built-in services only.
-      })
-      .finally(() => active && setLoaded(true));
+    fetchRemote().then((r) => {
+      if (!active) return;
+      setRemote(r);
+      setLoaded(true);
+    });
     return () => {
       active = false;
     };
   }, [userId]);
 
   const value = useMemo<CatalogValue>(() => {
+    const custom = remote.services;
     const mains = custom.filter((r) => !r.parent_id);
     const services = [...builtInServices, ...mains.map(toService)];
     const serviceIds = new Set(services.map((s) => s.id));
@@ -87,13 +137,16 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
       services,
       topics,
       mainNav,
+      // Until the database answers, show nothing rather than posts an admin may have removed.
+      events: loaded ? (remote.events ?? builtInEvents) : [],
+      jobs: loaded ? (remote.jobs ?? builtInJobs) : [],
       custom,
       loaded,
       serviceImage: (id) => serviceImages[id] ?? photoByKey(imageKeys.get(id) ?? ''),
       topicById: (id) => topics.find((t) => t.id === id),
       reload,
     };
-  }, [custom, loaded, reload]);
+  }, [remote, loaded, reload]);
 
   return <CatalogContext.Provider value={value}>{children}</CatalogContext.Provider>;
 }

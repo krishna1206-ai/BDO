@@ -17,6 +17,8 @@ function fail(message: string): never {
       admins: 'admin.sql',
       enquiry_messages: 'chat.sql',
       site_services: 'services.sql',
+      site_events: 'posts.sql',
+      site_jobs: 'posts.sql',
     };
     const file = (table && files[table]) || 'schema.sql';
     throw new Error(
@@ -396,6 +398,101 @@ export async function deleteSiteService(id: string) {
   const { error, count } = await client().from('site_services').delete({ count: 'exact' }).or(`id.eq.${id},parent_id.eq.${id}`);
   if (error) fail(error.message);
   if (count === 0) throw new Error('Could not remove: only admins can change services.');
+}
+
+// ----- site_events / site_jobs (admin-managed posts, see supabase/posts.sql) --
+
+export type SiteEventRow = {
+  id: string;
+  title: string;
+  date: string;
+  format: 'Webinar' | 'In person';
+  location: string;
+  description: string;
+  image_url: string | null;
+};
+
+export type SiteJobRow = {
+  id: string;
+  title: string;
+  team: string;
+  location: string;
+  type: 'Graduate' | 'Experienced' | 'Internship';
+  description: string;
+  image_url: string | null;
+};
+
+const EVENT_COLUMNS = 'id, title, date, format, location, description, image_url';
+const JOB_COLUMNS = 'id, title, team, location, type, description, image_url';
+
+export async function listSiteEvents(): Promise<SiteEventRow[]> {
+  const { data, error } = await client().from('site_events').select(EVENT_COLUMNS).order('date', { ascending: true }).limit(500);
+  if (error) fail(error.message);
+  return (data ?? []) as SiteEventRow[];
+}
+
+export async function listSiteJobs(): Promise<SiteJobRow[]> {
+  const { data, error } = await client()
+    .from('site_jobs')
+    .select(JOB_COLUMNS)
+    .order('created_at', { ascending: true })
+    .order('id', { ascending: true })
+    .limit(500);
+  if (error) fail(error.message);
+  return (data ?? []) as SiteJobRow[];
+}
+
+/** Adds (no id) or updates (with id) an event post. */
+export async function saveSiteEvent(row: Omit<SiteEventRow, 'id'> & { id?: string }) {
+  await savePost('site_events', row);
+}
+
+/** Adds (no id) or updates (with id) a job post. */
+export async function saveSiteJob(row: Omit<SiteJobRow, 'id'> & { id?: string }) {
+  await savePost('site_jobs', row);
+}
+
+export const deleteSiteEvent = (id: string) => deletePost('site_events', id);
+export const deleteSiteJob = (id: string) => deletePost('site_jobs', id);
+
+async function savePost(table: string, row: { id?: string } & Record<string, unknown>) {
+  const { id, ...fields } = row;
+  if (id) {
+    const { error, count } = await client().from(table).update(fields, { count: 'exact' }).eq('id', id);
+    if (error) fail(error.message);
+    if (count === 0) throw new Error('Could not save: this post was removed, or your account is not an admin.');
+  } else {
+    const { error } = await client().from(table).insert(fields);
+    if (error) fail(error.message);
+  }
+}
+
+async function deletePost(table: string, id: string) {
+  const { error, count } = await client().from(table).delete({ count: 'exact' }).eq('id', id);
+  if (error) fail(error.message);
+  if (count === 0) throw new Error('Could not remove: only admins can change posts.');
+}
+
+/** A photo chosen with expo-image-picker (only the fields used here). */
+export type PickedImage = { uri: string; mimeType?: string | null; file?: Blob | null };
+
+/** Uploads a photo to the public "site-images" bucket and returns its web link. */
+export async function uploadSiteImage(image: PickedImage): Promise<string> {
+  const type = image.mimeType || image.file?.type || 'image/jpeg';
+  const ext = (type.split('/')[1] || 'jpg').replace('jpeg', 'jpg').replace(/[^a-z0-9]/g, '');
+  const path = `posts/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  // Web gives a File; on phones read the local file into memory.
+  const body = image.file ?? (await (await fetch(image.uri)).arrayBuffer());
+  const bucket = client().storage.from('site-images');
+  const { error } = await bucket.upload(path, body, { contentType: type, upsert: false });
+  if (error) {
+    const m = error.message.toLowerCase();
+    if (m.includes('bucket not found')) throw new Error('Photo uploads are not set up yet. Run supabase/posts.sql in the Supabase SQL Editor.');
+    if (m.includes('exceeded') || m.includes('too large')) throw new Error('That photo is too big. Choose one under 5 MB.');
+    if (m.includes('mime') || m.includes('not supported')) throw new Error('Use a JPG, PNG, WebP or GIF photo.');
+    fail(error.message);
+  }
+  return bucket.getPublicUrl(path).data.publicUrl;
 }
 
 // ----- saved_insights --------------------------------------------------------

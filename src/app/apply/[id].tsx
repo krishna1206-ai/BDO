@@ -4,14 +4,17 @@ import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, Text, Vi
 
 import { EMAIL_RE, FormAlert, FormField, authStyles as s } from '@/components/form';
 import { PressableScale, Reveal, Tag, styles as ui } from '@/components/ui';
-import { jobs } from '@/data/content';
+import { Image } from 'expo-image';
+
 import { useAuth } from '@/lib/auth';
+import { useCatalog } from '@/lib/catalog';
 import { submitJobApplication } from '@/lib/db';
-import { colors, spacing } from '@/theme';
+import { colors, radius, spacing } from '@/theme';
 
 /** Job application form; saves to the "job_applications" table in Supabase. */
 export default function ApplyScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { jobs, loaded } = useCatalog();
   const job = jobs.find((j) => j.id === id);
   const { user } = useAuth();
 
@@ -24,6 +27,14 @@ export default function ApplyScreen() {
   const [formError, setFormError] = useState('');
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
+
+  if (!job && !loaded) {
+    return (
+      <View style={[ui.screen, { flex: 1, alignItems: 'center', justifyContent: 'center' }]}>
+        <ActivityIndicator color={colors.primary} />
+      </View>
+    );
+  }
 
   if (!job) {
     return (
@@ -59,11 +70,20 @@ export default function ApplyScreen() {
       <Stack.Screen options={{ title: 'Apply' }} />
       <ScrollView contentContainerStyle={s.screen} keyboardShouldPersistTaps="handled">
         <Reveal index={0} style={s.card}>
+          {job.image ? (
+            <Image
+              source={{ uri: job.image }}
+              style={{ height: 150, borderRadius: radius.sm, marginBottom: spacing.md, backgroundColor: '#E8EEF6' }}
+              contentFit="cover"
+              transition={250}
+            />
+          ) : null}
           <Tag label={job.type} />
           <Text style={[s.title, { marginTop: spacing.sm }]}>{job.title}</Text>
           <Text style={s.subtitle}>
             {job.team} · {job.location}
           </Text>
+          {job.description ? <Text style={[ui.body, { marginTop: spacing.md }]}>{job.description}</Text> : null}
 
           {done ? (
             <>

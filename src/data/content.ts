@@ -73,6 +73,8 @@ export type EventItem = {
   title: string;
   date: string;
   format: 'Webinar' | 'In person';
+  /** Photo link (uploaded by an admin or pasted); without it the format's default photo is used. */
+  image?: string;
   location: string;
   description: string;
 };
@@ -83,6 +85,10 @@ export type Job = {
   team: string;
   location: string;
   type: 'Graduate' | 'Experienced' | 'Internship';
+  /** Optional details shown on the application page. */
+  description?: string;
+  /** Optional photo link shown on the job card and application page. */
+  image?: string;
 };
 
 export type Office = {

@@ -16,19 +16,24 @@ import {
   useReplayKey,
   useScrollTracker,
 } from '@/components/ui';
-import { events, formatDate, heroSlides, industries, insights, news, services, stats } from '@/data/content';
-import { cyberImage, eventImages, insightImage, newsImage, serviceImages, sustainabilityImage } from '@/data/images';
+import { formatDate, heroSlides, industries, insights, news, services, stats } from '@/data/content';
+import { cyberImage, eventImage, insightImage, newsImage, serviceImages, sustainabilityImage } from '@/data/images';
+import { useCatalog } from '@/lib/catalog';
 import { colors, radius, spacing } from '@/theme';
 
 export default function HomeScreen() {
   const replayKey = useReplayKey();
+  const { events } = useCatalog();
   const { scrollY, onScroll } = useScrollTracker();
 
   const byNewest = <T extends { date: string }>(list: T[]) => [...list].sort((a, b) => b.date.localeCompare(a.date));
   const reports = byNewest(insights.filter((i) => i.report));
   const latest = byNewest(insights.filter((i) => !i.report)).slice(0, 3);
   const latestNews = byNewest(news).slice(0, 2);
-  const nextEvent = [...events].sort((a, b) => a.date.localeCompare(b.date))[0];
+  // The next event from today; if every event has passed, the most recent one.
+  const today = new Date().toISOString().slice(0, 10);
+  const byDate = [...events].sort((a, b) => a.date.localeCompare(b.date));
+  const nextEvent = byDate.find((e) => e.date >= today) ?? byDate[byDate.length - 1];
 
   return (
     <ScrollRevealProvider value={scrollY}>
@@ -115,7 +120,7 @@ export default function HomeScreen() {
             <>
               <SectionHeader title="Upcoming event" action="All events" onAction={() => router.push('/events')} />
               <Card index={0} style={s.darkCard} onPress={() => router.push('/events')}>
-                <CardImage source={eventImages[nextEvent.format]} height={130} />
+                <CardImage source={eventImage(nextEvent)} height={130} />
                 <Text style={s.eventDate}>{formatDate(nextEvent.date)}</Text>
                 <Text style={[s.cardTitle, { color: colors.onPrimary }]}>{nextEvent.title}</Text>
                 <Text style={{ color: '#C9D4E3' }}>
