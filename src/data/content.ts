@@ -10,6 +10,8 @@ export type Service = {
   summary: string;
   description: string;
   offerings: string[];
+  /** "Meet our leader" contact set by an admin. */
+  leader?: Leader;
 };
 
 export type Insight = {
@@ -87,6 +89,9 @@ export type Office = {
 };
 
 /** Firm name used in menu labels; change here to rebrand every label at once. */
+/** A key contact shown in the "Meet our leader" section of a service page. */
+export type Leader = { name: string; role: string; office: string; email: string };
+
 export const BRAND = 'Northbridge';
 
 export const services: Service[] = [

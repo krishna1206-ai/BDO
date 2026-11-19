@@ -22,8 +22,8 @@ import Animated, { FadeIn, ReduceMotion } from 'react-native-reanimated';
 
 import { EMAIL_RE, FormAlert, FormField, authStyles } from '@/components/form';
 import { styles as ui } from '@/components/ui';
-import type { Job } from '@/data/content';
-import { photoChoices } from '@/data/images';
+import type { Job, Leader } from '@/data/content';
+import { photoChoices, serviceImages } from '@/data/images';
 import { useAuth } from '@/lib/auth';
 import { useCatalog } from '@/lib/catalog';
 import {
@@ -41,10 +41,12 @@ import {
   listAdmins,
   removeAdmin,
   removeSubscriber,
+  resetSiteService,
   saveSiteJob,
   setApplicationStatus,
   setEnquiryStatus,
   updateSiteService,
+  upsertSiteService,
   uploadSiteImage,
   type ActivityItem,
   type ApplicationRow,
@@ -52,7 +54,6 @@ import {
   type EnquiryRow,
   type EnquiryStatus,
   type ProfileRow,
-  type SiteServiceRow,
   type SubscriberRow,
 } from '@/lib/db';
 import { colors, radius, spacing } from '@/theme';
@@ -346,21 +347,32 @@ const SERVICE_ICONS: (keyof typeof Ionicons.glyphMap)[] = [
 ];
 
 type ServiceForm = {
-  /** Set when editing an existing admin-added service. */
+  /** Set when editing an existing service (built-in or admin-added). */
   editingId: string | null;
+  /** Editing a service that ships with the app (saved as an override row). */
+  builtIn: boolean;
   kind: 'main' | 'sub';
   parentId: string;
   title: string;
   summary: string;
   description: string;
   icon: string;
+  /** Photo key; '' keeps a built-in service's own photo. */
   image: string;
   points: string;
   overview: string;
+  /** "Meet our leader" contact; all empty = the default contact. */
+  leaderName: string;
+  leaderRole: string;
+  leaderOffice: string;
+  leaderEmail: string;
+  /** Main services: new pages to add to the right-side box, one per line. */
+  newSubs: string;
 };
 
 const emptyForm = (parentId = ''): ServiceForm => ({
   editingId: null,
+  builtIn: false,
   kind: parentId ? 'sub' : 'main',
   parentId,
   title: '',
@@ -370,6 +382,11 @@ const emptyForm = (parentId = ''): ServiceForm => ({
   image: photoChoices[2].key,
   points: '',
   overview: '',
+  newSubs: '',
+  leaderName: '',
+  leaderRole: '',
+  leaderOffice: '',
+  leaderEmail: '',
 });
 
 const slugify = (text: string) =>
@@ -379,6 +396,14 @@ const slugify = (text: string) =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 60) || 'service';
+
+/** Form fields for a saved leader (empty when there is none). */
+const leaderFields = (leader?: Leader) => ({
+  leaderName: leader?.name ?? '',
+  leaderRole: leader?.role ?? '',
+  leaderOffice: leader?.office ?? '',
+  leaderEmail: leader?.email ?? '',
+});
 
 /** One item per line, blank lines dropped. */
 const lines = (text: string) =>
@@ -395,46 +420,71 @@ const paragraphs = (text: string) =>
     .filter(Boolean);
 
 function ServicesTab() {
-  const { services, topics, custom, reload } = useCatalog();
+  const { services, topics, custom, reload, isBuiltIn, builtInTitle } = useCatalog();
   const [form, setForm] = useState<ServiceForm>(() => emptyForm());
   const [message, setMessage] = useState<{ tone: 'error' | 'success'; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const scroller = useRef<ComponentRef<typeof ScrollView>>(null);
 
-  const customById = useMemo(() => new Map(custom.map((r) => [r.id, r])), [custom]);
+  const rowById = useMemo(() => new Map(custom.map((r) => [r.id, r])), [custom]);
+  const removedBuiltIns = custom.filter((r) => r.hidden && isBuiltIn(r.id));
   const set = <K extends keyof ServiceForm>(key: K, value: ServiceForm[K]) => setForm((f) => ({ ...f, [key]: value }));
+  const subsOf = (id: string) => topics.filter((t) => t.parent.kind === 'service' && t.parent.id === id);
 
-  /** A web address that no other service or page uses yet. */
-  const uniqueId = (title: string) => {
-    const taken = new Set([...services.map((x) => x.id), ...topics.map((x) => x.id), ...custom.map((x) => x.id)]);
+  /** Web addresses already used by a service or page. */
+  const takenIds = () => new Set([...services.map((x) => x.id), ...topics.map((x) => x.id), ...custom.map((x) => x.id)]);
+  const uniqueId = (title: string, taken: Set<string>) => {
     const base = slugify(title);
     let id = base;
     for (let n = 2; taken.has(id); n++) id = `${base}-${n}`;
+    taken.add(id);
     return id;
   };
 
-  const startEdit = (row: SiteServiceRow) => {
+  const toTop = () => scroller.current?.scrollTo({ y: 0, animated: true });
+
+  /** Fills the form with what the site shows now for this service or page. */
+  const startEdit = (id: string) => {
     setMessage(null);
+    const builtIn = isBuiltIn(id);
+    const main = services.find((x) => x.id === id);
+    if (main) {
+      setForm({
+        ...emptyForm(),
+        editingId: id,
+        builtIn,
+        kind: 'main',
+        title: main.title,
+        summary: main.summary,
+        description: main.description,
+        icon: main.icon,
+        image: rowById.get(id)?.image ?? (builtIn ? '' : photoChoices[2].key),
+        points: main.offerings.join('\n'),
+        ...leaderFields(main.leader),
+      });
+      return toTop();
+    }
+    const page = topics.find((x) => x.id === id);
+    if (!page) return;
+    const intro = page.overview ?? (page.page ? (Array.isArray(page.page.intro) ? page.page.intro : [page.page.intro]) : []);
     setForm({
-      editingId: row.id,
-      kind: row.parent_id ? 'sub' : 'main',
-      parentId: row.parent_id ?? '',
-      title: row.title,
-      summary: row.summary,
-      description: row.description,
-      icon: row.icon,
-      image: row.image,
-      points: row.points.join('\n'),
-      overview: row.overview.join('\n\n'),
+      ...emptyForm(page.parent.id),
+      editingId: id,
+      builtIn,
+      title: page.title,
+      summary: page.summary,
+      points: page.points.join('\n'),
+      overview: intro.join('\n\n'),
+      ...leaderFields(page.leader),
     });
-    scroller.current?.scrollTo({ y: 0, animated: true });
+    toTop();
   };
 
   const startAddUnder = (parentId: string) => {
     setMessage(null);
     setForm(emptyForm(parentId));
-    scroller.current?.scrollTo({ y: 0, animated: true });
+    toTop();
   };
 
   const save = async () => {
@@ -442,28 +492,66 @@ function ServicesTab() {
     const title = form.title.trim();
     if (!title) return setMessage({ tone: 'error', text: 'Enter a name for the service.' });
     if (form.kind === 'sub' && !form.parentId) return setMessage({ tone: 'error', text: 'Choose which main service it goes under.' });
-    if (!form.summary.trim()) return setMessage({ tone: 'error', text: 'Add a short summary (one sentence).' });
+    if (!form.editingId && !form.summary.trim()) return setMessage({ tone: 'error', text: 'Add a short summary (one sentence).' });
+
+    // Leader: all fields empty = the default contact.
+    const leaderInput = {
+      name: form.leaderName.trim(),
+      role: form.leaderRole.trim(),
+      office: form.leaderOffice.trim(),
+      email: form.leaderEmail.trim().toLowerCase(),
+    };
+    const hasLeader = Object.values(leaderInput).some(Boolean);
+    if (hasLeader && !leaderInput.name) return setMessage({ tone: 'error', text: "Enter the leader's name, or clear all the leader fields." });
+    if (leaderInput.email && !EMAIL_RE.test(leaderInput.email)) return setMessage({ tone: 'error', text: "Enter a valid email for the leader." });
 
     const isMain = form.kind === 'main';
+    const taken = takenIds();
     const row = {
-      id: form.editingId ?? uniqueId(title),
+      id: form.editingId ?? uniqueId(title, taken),
       parent_id: isMain ? null : form.parentId,
       title,
       summary: form.summary.trim(),
       description: isMain ? form.description.trim() : '',
       icon: form.icon,
-      image: form.image,
+      image: isMain ? form.image : '',
       points: lines(form.points),
       overview: isMain ? [] : paragraphs(form.overview),
+      hidden: false,
+      leader: hasLeader ? leaderInput : null,
     };
+
+    // New pages for the right-side box (skipping names that are already there).
+    const existing = new Set((form.editingId ? subsOf(form.editingId) : []).map((t) => t.title.toLowerCase()));
+    const newPages = isMain ? [...new Set(lines(form.newSubs))].filter((t) => !existing.has(t.toLowerCase())) : [];
+
     setBusy(true);
     setMessage(null);
     try {
-      if (form.editingId) await updateSiteService(row);
+      if (form.builtIn) await upsertSiteService(row);
+      else if (form.editingId) await updateSiteService(row);
       else await createSiteService(row);
+      for (const pageTitle of newPages) {
+        await createSiteService({
+          id: uniqueId(pageTitle, taken),
+          parent_id: row.id,
+          title: pageTitle,
+          summary: '',
+          description: '',
+          icon: 'briefcase-outline',
+          image: '',
+          points: [],
+          overview: [],
+          hidden: false,
+          leader: null,
+        });
+      }
       await reload();
       const where = isMain ? 'as a main service' : `under ${services.find((x) => x.id === row.parent_id)?.title ?? 'its main service'}`;
-      setMessage({ tone: 'success', text: `"${title}" ${form.editingId ? 'saved' : `added ${where}`}. It is live in the menu now.` });
+      const pagesNote = newPages.length
+        ? ` ${newPages.length} page${newPages.length > 1 ? 's were' : ' was'} added to its right-side box; use Edit on each to add its overview and points.`
+        : '';
+      setMessage({ tone: 'success', text: `"${title}" ${form.editingId ? 'saved' : `added ${where}`}. It is live now.${pagesNote}` });
       setForm(emptyForm());
     } catch (e) {
       setMessage({ tone: 'error', text: e instanceof Error ? e.message : 'Could not save the service.' });
@@ -472,28 +560,64 @@ function ServicesTab() {
     }
   };
 
-  const remove = async (row: SiteServiceRow) => {
+  /** Built-in: hidden from the site (can be restored). Admin-added: deleted with its pages. */
+  const remove = async (id: string) => {
     setConfirmId(null);
     setMessage(null);
+    const main = services.find((x) => x.id === id);
+    const page = topics.find((x) => x.id === id);
+    const title = main?.title ?? page?.title ?? id;
     try {
-      await deleteSiteService(row.id);
-      if (form.editingId === row.id) setForm(emptyForm());
+      if (isBuiltIn(id)) {
+        await upsertSiteService({
+          id,
+          parent_id: main ? null : (page?.parent.id ?? null),
+          title,
+          summary: main?.summary ?? page?.summary ?? '',
+          description: main?.description ?? '',
+          icon: main?.icon ?? 'briefcase-outline',
+          image: rowById.get(id)?.image ?? '',
+          points: main?.offerings ?? page?.points ?? [],
+          overview: page?.overview ?? [],
+          hidden: true,
+          leader: rowById.get(id)?.leader ?? null,
+        });
+      } else {
+        await deleteSiteService(id);
+      }
+      if (form.editingId === id) setForm(emptyForm());
       await reload();
-      setMessage({ tone: 'success', text: `"${row.title}" removed.` });
+      setMessage({
+        tone: 'success',
+        text: isBuiltIn(id) ? `"${title}" removed from the site. You can restore it at the bottom of this page.` : `"${title}" removed.`,
+      });
     } catch (e) {
       setMessage({ tone: 'error', text: e instanceof Error ? e.message : 'Could not remove the service.' });
     }
   };
 
-  /** Edit / remove buttons for admin-added rows; built-in rows are part of the app's code. */
-  const actions = (id: string) => {
-    const row = customById.get(id);
-    if (!row) return <Text style={s.badge}>Built-in</Text>;
+  /** Undo every change to a built-in service (also restores a removed one). */
+  const reset = async (id: string, verb: 'reset' | 'restored') => {
+    setMessage(null);
+    try {
+      await resetSiteService(id);
+      if (form.editingId === id) setForm(emptyForm());
+      await reload();
+      setMessage({ tone: 'success', text: `"${builtInTitle(id) ?? id}" ${verb === 'reset' ? 'is back to its original text' : 'is back on the site'}.` });
+    } catch (e) {
+      setMessage({ tone: 'error', text: e instanceof Error ? e.message : 'Could not undo the change.' });
+    }
+  };
+
+  const actions = (id: string, isMainRow: boolean) => {
+    const builtIn = isBuiltIn(id);
+    const edited = builtIn && rowById.has(id);
     if (confirmId === id) {
+      const hasPages = isMainRow && subsOf(id).length > 0;
       return (
         <View style={s.rowActions}>
-          <Text style={[s.rowMeta, { fontSize: 13 }]}>{row.parent_id ? 'Remove?' : 'Remove with its sub-services?'}</Text>
-          <Pressable onPress={() => remove(row)} style={[s.status, { borderColor: '#B42318', backgroundColor: '#B42318' }]}>
+          <Text style={[s.rowMeta, { fontSize: 13 }]}>{hasPages ? 'Remove with its pages?' : 'Remove?'}</Text>
+          <Pressable onPress={() => remove(id)} style={[s.status, { borderColor: '#B42318', backgroundColor: '#B42318' }]}>
             <Text style={[s.statusText, { color: colors.onPrimary }]}>Yes, remove</Text>
           </Pressable>
           <Pressable onPress={() => setConfirmId(null)} style={[s.status, { borderColor: colors.border }]}>
@@ -504,9 +628,15 @@ function ServicesTab() {
     }
     return (
       <View style={s.rowActions}>
-        <Pressable onPress={() => startEdit(row)} style={[s.status, { borderColor: colors.primary }]}>
+        {builtIn ? <Text style={s.badge}>{edited ? 'Built-in · edited' : 'Built-in'}</Text> : null}
+        <Pressable onPress={() => startEdit(id)} style={[s.status, { borderColor: colors.primary }]}>
           <Text style={[s.statusText, { color: colors.primary }]}>Edit</Text>
         </Pressable>
+        {edited ? (
+          <Pressable onPress={() => reset(id, 'reset')} style={[s.status, { borderColor: colors.textMuted }]}>
+            <Text style={[s.statusText, { color: colors.textMuted }]}>Reset</Text>
+          </Pressable>
+        ) : null}
         <Pressable onPress={() => setConfirmId(id)} style={[s.status, { borderColor: '#B42318' }]}>
           <Text style={[s.statusText, { color: '#B42318' }]}>Remove</Text>
         </Pressable>
@@ -516,18 +646,27 @@ function ServicesTab() {
 
   const isMain = form.kind === 'main';
   const parentTitle = services.find((x) => x.id === form.parentId)?.title;
+  const currentPages = form.editingId && isMain ? subsOf(form.editingId) : [];
+  // Built-in main services can keep their own photo.
+  const photoOptions =
+    form.builtIn && isMain && form.editingId && serviceImages[form.editingId]
+      ? [{ key: '', label: 'Original', source: serviceImages[form.editingId] }, ...photoChoices]
+      : photoChoices;
 
   return (
     <ScrollView ref={scroller} contentContainerStyle={s.pad} keyboardShouldPersistTaps="handled">
       <Text style={s.tabTitle}>Services</Text>
       <Text style={[s.rowMeta, { marginTop: 4 }]}>
-        Add a new main service (like Tax), or place a new service under an existing main service. New services use the same page design as
-        the existing ones and appear in the menu, the Services page and search straight away.
+        Add, edit or remove any service, including the built-in ones. Changes use the same page design and appear in the menu, the
+        Services page and search straight away.
       </Text>
 
       {/* Add / edit form */}
       <View style={[s.row, { marginTop: spacing.md, maxWidth: 760 }]}>
         <Text style={s.rowTitle}>{form.editingId ? `Edit "${form.title || 'service'}"` : 'Add a service'}</Text>
+        {form.builtIn ? (
+          <Text style={s.rowMeta}>This is a built-in service. Your changes replace its text; use Reset in the list to go back to the original.</Text>
+        ) : null}
 
         <Text style={s.fieldLabel}>What are you adding?</Text>
         <View style={s.statusRow}>
@@ -591,6 +730,19 @@ function ServicesTab() {
               style={s.multiline}
               placeholder="A few sentences about this service, shown at the top of its page under the summary."
             />
+            <FormField
+              label="Services in the right-side box (one per line)"
+              value={form.newSubs}
+              onChangeText={(v) => set('newSubs', v)}
+              multiline
+              style={s.multiline}
+              placeholder={'Business Applications\nCloud & Infrastructure Services\nCyber Security'}
+            />
+            <Text style={[s.rowMeta, { fontSize: 13, marginTop: 4 }]}>
+              Each line becomes its own page, listed in the &quot;Our {form.title.trim() || 'service'} Services&quot; box beside the
+              overview (and in the menu).
+              {currentPages.length ? ` Already in the box: ${currentPages.map((p) => p.title).join(', ')}.` : ''}
+            </Text>
             <Text style={s.fieldLabel}>Icon</Text>
             <View style={s.statusRow}>
               {SERVICE_ICONS.map((name) => {
@@ -604,10 +756,10 @@ function ServicesTab() {
             </View>
             <Text style={s.fieldLabel}>Photo (sub-services use their main service&apos;s photo)</Text>
             <View style={s.photoGrid}>
-              {photoChoices.map((p) => {
+              {photoOptions.map((p) => {
                 const on = form.image === p.key;
                 return (
-                  <Pressable key={p.key} onPress={() => set('image', p.key)} style={[s.photo, on && s.photoOn]}>
+                  <Pressable key={p.key || 'original'} onPress={() => set('image', p.key)} style={[s.photo, on && s.photoOn]}>
                     <Image source={p.source} style={s.photoImg} contentFit="cover" />
                     <Text style={[s.photoLabel, on && { color: colors.primaryLink }]} numberOfLines={1}>
                       {p.label}
@@ -629,13 +781,41 @@ function ServicesTab() {
         )}
 
         <FormField
-          label="How we help (one point per line)"
+          label={isMain ? 'How we help (one point per line)' : 'How we help (one point per line, also listed in the right-side box)'}
           value={form.points}
           onChangeText={(v) => set('points', v)}
           multiline
           style={s.multiline}
           placeholder={'Tax returns and filings\nAdvice on new rules\nSupport with audits'}
         />
+
+        <Text style={[s.fieldLabel, { marginTop: spacing.lg }]}>Meet our leader (optional)</Text>
+        <Text style={[s.rowMeta, { fontSize: 13, marginTop: 2 }]}>
+          The key contact shown in the &quot;Meet our leader&quot; section of the page.
+          {isMain ? ' Pages under this service show this leader too, unless they have their own.' : ''} Leave all four empty to show the
+          default contact.
+        </Text>
+        <View style={s.leaderGrid}>
+          <View style={s.leaderCell}>
+            <FormField label="Name" value={form.leaderName} onChangeText={(v) => set('leaderName', v)} placeholder="e.g. Fiona Grant" />
+          </View>
+          <View style={s.leaderCell}>
+            <FormField label="Role" value={form.leaderRole} onChangeText={(v) => set('leaderRole', v)} placeholder="e.g. Director" />
+          </View>
+          <View style={s.leaderCell}>
+            <FormField label="Office" value={form.leaderOffice} onChangeText={(v) => set('leaderOffice', v)} placeholder="e.g. Edinburgh" />
+          </View>
+          <View style={s.leaderCell}>
+            <FormField
+              label="Email"
+              value={form.leaderEmail}
+              onChangeText={(v) => set('leaderEmail', v)}
+              placeholder="name@company.com"
+              keyboardType="email-address"
+              autoCapitalize="none"
+            />
+          </View>
+        </View>
 
         {message ? <FormAlert tone={message.tone} message={message.text} /> : null}
 
@@ -657,23 +837,23 @@ function ServicesTab() {
       {/* Current services, in menu order */}
       <Text style={[s.tabTitle, { fontSize: 18, marginTop: spacing.xl, marginBottom: spacing.sm }]}>All services</Text>
       {services.map((m) => {
-        const subs = topics.filter((t) => t.parent.kind === 'service' && t.parent.id === m.id);
+        const subs = subsOf(m.id);
         return (
           <View key={m.id} style={s.row}>
             <View style={s.serviceHead}>
               <Ionicons name={m.icon} size={20} color={colors.primary} />
-              <Pressable onPress={() => router.push(`/service/${m.id}`)} style={{ flex: 1 }}>
+              <Pressable onPress={() => router.push(`/service/${m.id}`)} style={{ flex: 1, minWidth: 140 }}>
                 <Text style={s.rowTitle}>{m.title}</Text>
               </Pressable>
-              {actions(m.id)}
+              {actions(m.id, true)}
             </View>
             {subs.map((t) => (
               <View key={t.id} style={s.subRow}>
                 <Ionicons name="return-down-forward-outline" size={16} color={colors.textMuted} />
-                <Pressable onPress={() => router.push(`/topic/${t.id}`)} style={{ flex: 1 }}>
+                <Pressable onPress={() => router.push(`/topic/${t.id}`)} style={{ flex: 1, minWidth: 140 }}>
                   <Text style={s.subTitle}>{t.title}</Text>
                 </Pressable>
-                {actions(t.id)}
+                {actions(t.id, false)}
               </View>
             ))}
             <Pressable onPress={() => startAddUnder(m.id)} style={[s.subRow, { borderTopWidth: subs.length ? 1 : 0 }]} hitSlop={4}>
@@ -683,6 +863,24 @@ function ServicesTab() {
           </View>
         );
       })}
+
+      {removedBuiltIns.length ? (
+        <>
+          <Text style={[s.tabTitle, { fontSize: 18, marginTop: spacing.xl, marginBottom: spacing.sm }]}>Removed built-in services</Text>
+          {removedBuiltIns.map((r) => (
+            <View key={r.id} style={[s.row, s.postRow]}>
+              <Ionicons name="eye-off-outline" size={18} color={colors.textMuted} />
+              <View style={{ flex: 1, minWidth: 180 }}>
+                <Text style={s.rowTitle}>{builtInTitle(r.id) ?? r.title}</Text>
+                <Text style={s.rowMeta}>{r.parent_id ? 'Page' : 'Main service'} · hidden from the site</Text>
+              </View>
+              <Pressable onPress={() => reset(r.id, 'restored')} style={[s.status, { borderColor: colors.primary }]}>
+                <Text style={[s.statusText, { color: colors.primary }]}>Restore</Text>
+              </Pressable>
+            </View>
+          ))}
+        </>
+      ) : null}
     </ScrollView>
   );
 }
@@ -1520,6 +1718,9 @@ const s = StyleSheet.create({
   },
   subTitle: { fontSize: 15, color: colors.text },
   rowActions: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  leaderGrid: { flexDirection: 'row', flexWrap: 'wrap', columnGap: spacing.md },
+  leaderCell: { flexGrow: 1, flexBasis: 220 },
+
   // Jobs tab
   imageRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md, marginTop: spacing.sm, alignItems: 'flex-start' },
   imagePreview: { width: 160, height: 100, borderRadius: radius.sm, overflow: 'hidden', backgroundColor: '#E8EEF6' },

@@ -30,11 +30,20 @@ type CatalogValue = {
   loaded: boolean;
   serviceImage: (serviceId: string) => number;
   topicById: (id: string) => Topic | undefined;
+  /** True for services and pages that ship with the app (they can be edited, removed and reset). */
+  isBuiltIn: (id: string) => boolean;
+  /** The original title of a built-in service or page. */
+  builtInTitle: (id: string) => string | undefined;
   /** Fetch the database content again (after an admin changes it). */
   reload: () => Promise<void>;
 };
 
 const CatalogContext = createContext<CatalogValue | null>(null);
+
+/** Ids of the services and service pages that ship with the app. */
+const builtInServiceTopics = builtInTopics.filter((t) => t.parent.kind === 'service');
+const BUILT_IN_IDS = new Set([...builtInServices.map((s) => s.id), ...builtInServiceTopics.map((t) => t.id)]);
+const BUILT_IN_TITLES = new Map([...builtInServices, ...builtInServiceTopics].map((x) => [x.id, x.title]));
 
 const toService = (r: SiteServiceRow): Service => ({
   id: r.id,
@@ -43,6 +52,7 @@ const toService = (r: SiteServiceRow): Service => ({
   summary: r.summary,
   description: r.description || r.summary,
   offerings: r.points,
+  leader: r.leader ?? undefined,
 });
 
 const toTopic = (r: SiteServiceRow): Topic => ({
@@ -53,6 +63,7 @@ const toTopic = (r: SiteServiceRow): Topic => ({
   parent: { kind: 'service', id: r.parent_id as string },
   overview: r.overview.length ? r.overview : undefined,
   custom: true,
+  leader: r.leader ?? undefined,
 });
 
 const toJob = (r: SiteJobRow): Job => ({
@@ -108,14 +119,45 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<CatalogValue>(() => {
     const custom = remote.services;
-    const mains = custom.filter((r) => !r.parent_id);
-    const services = [...builtInServices, ...mains.map(toService)];
+    // A database row with a built-in id edits (or, when hidden, removes) that built-in item.
+    const rowById = new Map(custom.map((r) => [r.id, r]));
+    const added = custom.filter((r) => !BUILT_IN_IDS.has(r.id) && !r.hidden);
+
+    const editedBuiltIns = builtInServices.flatMap((s): Service[] => {
+      const r = rowById.get(s.id);
+      if (!r) return [s];
+      if (r.hidden) return [];
+      return [
+        { ...s, title: r.title, summary: r.summary, description: r.description, icon: (r.icon || s.icon) as IconName, offerings: r.points, leader: r.leader ?? undefined },
+      ];
+    });
+    const services = [...editedBuiltIns, ...added.filter((r) => !r.parent_id).map(toService)];
     const serviceIds = new Set(services.map((s) => s.id));
-    // Sub-services whose main service was removed are hidden.
-    const subs = custom.filter((r) => r.parent_id && serviceIds.has(r.parent_id));
-    const topics = [...builtInTopics, ...subs.map(toTopic)];
+
+    const editedTopics = builtInTopics.flatMap((t): Topic[] => {
+      const r = t.parent.kind === 'service' ? rowById.get(t.id) : undefined;
+      if (!r) return [t];
+      if (r.hidden) return [];
+      const overview = r.overview.length ? r.overview : undefined;
+      return [
+        {
+          ...t,
+          title: r.title,
+          summary: r.summary,
+          points: r.points,
+          parent: { kind: 'service', id: r.parent_id ?? t.parent.id },
+          overview,
+          leader: r.leader ?? undefined,
+          // Pages with long-form content keep their sections; the edited overview replaces the intro.
+          page: t.page ? { ...t.page, intro: overview ?? t.page.intro } : undefined,
+        },
+      ];
+    });
+    const topics = [...editedTopics, ...added.filter((r) => r.parent_id).map(toTopic)]
+      // Pages whose main service was removed are hidden too.
+      .filter((t) => t.parent.kind !== 'service' || serviceIds.has(t.parent.id));
+
     const mainNav = builtInNav.map((n) => (n.id === 'services' ? servicesNav(services, topics) : n));
-    const imageKeys = new Map(mains.map((r) => [r.id, r.image]));
     return {
       services,
       topics,
@@ -124,8 +166,14 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
       jobs: loaded ? (remote.jobs ?? builtInJobs) : [],
       custom,
       loaded,
-      serviceImage: (id) => serviceImages[id] ?? photoByKey(imageKeys.get(id) ?? ''),
+      // An admin-chosen photo wins; otherwise the built-in photo (or the default for added services).
+      serviceImage: (id) => {
+        const key = rowById.get(id)?.image;
+        return key ? photoByKey(key) : (serviceImages[id] ?? photoByKey(''));
+      },
       topicById: (id) => topics.find((t) => t.id === id),
+      isBuiltIn: (id) => BUILT_IN_IDS.has(id),
+      builtInTitle: (id) => BUILT_IN_TITLES.get(id),
       reload,
     };
   }, [remote, loaded, reload]);

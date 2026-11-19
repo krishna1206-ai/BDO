@@ -1,5 +1,7 @@
 // Database helpers for the tables in supabase/schema.sql.
 // Every call runs as the signed-in user; Row Level Security keeps each user to their own rows.
+import type { Leader } from '@/data/content';
+
 import { supabase } from './supabase';
 
 function client() {
@@ -217,6 +219,10 @@ export type SiteServiceRow = {
   image: string;
   points: string[];
   overview: string[];
+  /** For a built-in service or page: true = removed from the site. */
+  hidden: boolean;
+  /** "Meet our leader" contact; null = the default contact. */
+  leader: Leader | null;
   created_at: string;
 };
 
@@ -224,22 +230,57 @@ export type SiteServiceInput = Omit<SiteServiceRow, 'created_at'>;
 
 const SERVICE_COLUMNS = 'id, parent_id, title, summary, description, icon, image, points, overview, created_at';
 
-/** Every admin-added service, oldest first (so new ones appear at the end of the menu). */
+/** Every admin-added service and built-in override, oldest first (so new ones appear at the end of the menu). */
 export async function listSiteServices(): Promise<SiteServiceRow[]> {
-  const { data, error } = await client().from('site_services').select(SERVICE_COLUMNS).order('created_at', { ascending: true }).limit(500);
+  const load = async (columns: string) => {
+    const { data, error } = await client().from('site_services').select(columns).order('created_at', { ascending: true }).limit(500);
+    return { rows: (data ?? []) as unknown as Partial<SiteServiceRow>[], error };
+  };
+  let { rows, error } = await load(`${SERVICE_COLUMNS}, hidden, leader`);
+  // Before the newer columns are added (re-run supabase/services.sql), still show admin-added services.
+  if (error?.code === '42703') ({ rows, error } = await load(SERVICE_COLUMNS));
   if (error) fail(error.message);
-  return (data ?? []) as SiteServiceRow[];
+  return rows.map((r) => ({ ...r, hidden: r.hidden ?? false, leader: r.leader ?? null }) as SiteServiceRow);
 }
 
+/** Creates or replaces the row with this id (used to edit or remove built-in services). */
+export async function upsertSiteService(input: SiteServiceInput) {
+  const { error } = await client().from('site_services').upsert(input, { onConflict: 'id' });
+  if (error?.code === '42703' || error?.code === 'PGRST204') {
+    throw new Error('Editing built-in services needs a database update. Run supabase/services.sql again in the Supabase SQL Editor.');
+  }
+  if (error) fail(error.message);
+}
+
+/** Removes the change made to a built-in service, bringing back the original (Reset / Restore). */
+export async function resetSiteService(id: string) {
+  const { error } = await client().from('site_services').delete().eq('id', id);
+  if (error) fail(error.message);
+}
+
+/** Leaves out the newer columns when they are unused, so saving works before they exist in the database. */
+const withoutHidden = ({ hidden, leader, ...rest }: SiteServiceInput) => ({
+  ...rest,
+  ...(hidden ? { hidden } : {}),
+  ...(leader ? { leader } : {}),
+});
+
 export async function createSiteService(input: SiteServiceInput) {
-  const { error } = await client().from('site_services').insert(input);
+  const { error } = await client().from('site_services').insert(withoutHidden(input));
   if (error?.code === '23505') throw new Error('A service with this web address already exists. Change the title slightly.');
   if (error) fail(error.message);
 }
 
 export async function updateSiteService(input: SiteServiceInput) {
-  const { id, ...fields } = input;
-  const { error, count } = await client().from('site_services').update(fields, { count: 'exact' }).eq('id', id);
+  const { id, ...fields } = withoutHidden(input);
+  // Always send the leader so clearing it in the form removes it.
+  const { error, count } = await client()
+    .from('site_services')
+    .update({ ...fields, leader: input.leader }, { count: 'exact' })
+    .eq('id', id);
+  if (error?.code === '42703' || error?.code === 'PGRST204') {
+    throw new Error('The leader field needs a database update. Run supabase/services.sql again in the Supabase SQL Editor.');
+  }
   if (error) fail(error.message);
   if (count === 0) throw new Error('Could not save: only admins can change services.');
 }

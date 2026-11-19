@@ -24,6 +24,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { PrimaryButton, Reveal, ScrollRevealProvider, useScrollTracker } from '@/components/ui';
+import type { Leader } from '@/data/content';
 import { colors, spacing } from '@/theme';
 
 /** Two-column layout from this width up; below it the side panel stacks under the intro. */
@@ -45,7 +46,8 @@ export type PageSection = {
 };
 
 export type RelatedItem = { id: string; title: string; category: string; date: string; image: number };
-export type Leader = { name: string; role: string; office: string; email: string };
+
+export type { Leader };
 
 type Props = {
   crumbs: Crumb[];

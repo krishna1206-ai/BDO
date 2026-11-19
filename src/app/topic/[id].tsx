@@ -91,7 +91,10 @@ export default function TopicScreen() {
   }));
 
   // Key contact: the senior adviser in the parent service, if there is one.
-  const leader = advisers.find((a) => a.speciality === parent.title);
+  const parentService = topic.parent.kind === 'service' ? services.find((x) => x.id === topic.parent.id) : undefined;
+  const adviser = advisers.find((a) => a.speciality === parent.title);
+  // Admin-set leader for this page, else its main service's, else the senior adviser in that service.
+  const leader = topic.leader ?? parentService?.leader ?? (adviser ? { name: adviser.name, role: adviser.role, office: adviser.office, email: adviser.email } : undefined);
 
   // Related insights: articles in the categories that fit this service, newest first.
   // Admin-added services have no mapping, so they show the latest articles from every category.
@@ -133,7 +136,7 @@ export default function TopicScreen() {
         contactTopic={topic.title}
         featureImage={careersImage}
         related={related}
-        leader={leader ? { name: leader.name, role: leader.role, office: leader.office, email: leader.email } : undefined}
+        leader={leader}
         faqs={topic.page?.faqs}
       />
     </>

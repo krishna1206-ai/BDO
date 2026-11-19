@@ -53,8 +53,10 @@ export default function ServiceDetail() {
               ]
             : []),
         ]}
+        sideTitle={/services?$/i.test(service.title) ? `Our ${service.title}` : `Our ${service.title} Services`}
         sideLinks={subTopics.map((tp) => ({ title: tp.title, href: `/topic/${tp.id}` as Href }))}
         contactTopic={service.title}
+        leader={service.leader}
       >
         {experts.length > 0 ? (
           <Reveal index={6} style={{ marginTop: spacing.xl }}>

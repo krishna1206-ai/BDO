@@ -65,3 +65,16 @@ drop trigger if exists site_services_touch on public.site_services;
 create trigger site_services_touch
   before update on public.site_services
   for each row execute function public.site_services_touch();
+
+-- ---------------------------------------------------------------------------
+-- Editing and removing the built-in services (added later; safe to re-run).
+-- A row whose id matches a built-in service or sub-page overrides it; hidden = true removes it
+-- from the site. Deleting that row (Reset / Restore in the admin panel) brings back the original.
+-- An empty image keeps the built-in photo.
+-- ---------------------------------------------------------------------------
+alter table public.site_services add column if not exists hidden boolean not null default false;
+
+-- "Meet our leader" contact for a service or page (added later; safe to re-run).
+-- Shape: {"name": "...", "role": "...", "office": "...", "email": "..."}; null = the default contact.
+alter table public.site_services add column if not exists leader jsonb
+  check (leader is null or (jsonb_typeof(leader) = 'object' and length(leader::text) <= 1000));
